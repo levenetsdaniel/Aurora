@@ -11,13 +11,13 @@
 
 class DipoleField final : public MagneticField {
 private:
-    double b0_T_;
-    double earthRadius_m_;
+    double b0_T;
+    double earthRadius_m;
 
 public:
     DipoleField(double b0_T = C::b0_T, double earthRadius_m = C::earthRadius_m) :
-    b0_T_(b0_T), earthRadius_m_(earthRadius_m) {
-        if (b0_T_ <= 0 || earthRadius_m_ <= 0)
+    b0_T(b0_T), earthRadius_m(earthRadius_m) {
+        if (this->b0_T <= 0 || this->earthRadius_m <= 0)
             throw std::invalid_argument("Invalid dipole parameters");
     }
 
@@ -29,7 +29,7 @@ public:
         const double radius = std::sqrt(r2);
         const Vector3 zAxis(0, 0, 1);
         const double z = r.dot(zAxis);
-        const double scale = b0_T_ * std::pow(earthRadius_m_ / radius, 3);
+        const double scale = b0_T * std::pow(earthRadius_m / radius, 3);
 
         return (r * (3.0 * z / r2) - zAxis) * scale;
     }
