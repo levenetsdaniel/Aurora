@@ -10,7 +10,6 @@
 
 
 class DipoleField final : public MagneticField {
-
 private:
     double b0_T_;
     double earthRadius_m_;

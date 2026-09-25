@@ -44,6 +44,10 @@ public:
         return std::sqrt(norm2());
     }
 
+    bool isFinite() const {
+        return std::isfinite(x) && std::isfinite(y) && std::isfinite(z);
+    }
+
     Vector3 normalize() {
         return *this / norm();
     }

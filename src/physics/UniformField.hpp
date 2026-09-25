@@ -6,7 +6,6 @@
 
 
 class UniformField final : public MagneticField {
-
 private:
     Vector3 field_T;
 
