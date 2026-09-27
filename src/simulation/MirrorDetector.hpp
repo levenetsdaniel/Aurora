@@ -21,7 +21,7 @@ private:
     double timeTolerance_s;
     unsigned maxIterations;
 
-    double parallelMomentum(const ParticleState& state, const MagneticField& field) const {
+    static double parallelMomentum(const ParticleState& state, const MagneticField& field) {
         if (!state.r.isFinite() || !state.p.isFinite() || !std::isfinite(state.time_s)) {
             throw std::invalid_argument("MirrorDetector: invalid particle state");
         }
@@ -39,7 +39,7 @@ private:
         return value;
     }
 
-    MirrorEvent makeEvent(const ParticleState& state) const {
+    static MirrorEvent makeEvent(const ParticleState& state) {
         const double radius = state.r.norm();
         if (!state.r.isFinite() || !std::isfinite(radius) || radius <= 0.0) {
             throw std::runtime_error("MirrorDetector: latitude is undefined at the origin");

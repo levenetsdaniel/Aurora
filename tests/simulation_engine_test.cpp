@@ -59,10 +59,8 @@ void checkBoundaryOutcomes(const UniformField& field) {
     const double entryTime_s = (startRadius_m - atmosphereRadius_m) / speed_m_s;
     require(inward.outcome == ParticleOutcome::Precipitated, "inward particle did not precipitate");
     require(inward.steps > 0 && inward.steps < baseConfig().maxSteps, "invalid precipitation step count");
-    require(inward.eventState.r.norm() <= atmosphereRadius_m,
-            "precipitation reported before the atmospheric boundary");
-    require(inward.eventState.r.norm() >= atmosphereRadius_m - speed_m_s * step_s - 1e-6,
-            "precipitation skipped more than one step past the boundary");
+    require(std::abs(inward.eventState.r.norm() - atmosphereRadius_m) < 1e-3,
+            "precipitation state was not localized to the atmospheric boundary");
     require(inward.eventState.time_s >= entryTime_s - 1e-12 &&
             inward.eventState.time_s <= entryTime_s + step_s + 1e-12,
             "precipitation time disagrees with straight-line motion");
@@ -70,10 +68,8 @@ void checkBoundaryOutcomes(const UniformField& field) {
     const auto outward = engine.run(radialState(1.0));
     const double escapeTime_s = (escapeRadius_m - startRadius_m) / speed_m_s;
     require(outward.outcome == ParticleOutcome::Escaped, "outward particle did not escape");
-    require(outward.eventState.r.norm() >= escapeRadius_m,
-            "escape reported before the outer boundary");
-    require(outward.eventState.r.norm() <= escapeRadius_m + speed_m_s * step_s + 1e-6,
-            "escape skipped more than one step past the boundary");
+    require(std::abs(outward.eventState.r.norm() - escapeRadius_m) < 1e-3,
+            "escape state was not localized to the outer boundary");
     require(outward.eventState.time_s >= escapeTime_s - 1e-12 &&
             outward.eventState.time_s <= escapeTime_s + step_s + 1e-12,
             "escape time disagrees with straight-line motion");

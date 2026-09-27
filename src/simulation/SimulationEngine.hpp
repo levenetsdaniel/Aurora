@@ -7,6 +7,8 @@
 #include "../numerics/BorisIntegrator.hpp"
 #include "SimulationConfig.hpp"
 #include "SimulationResult.hpp"
+#include "MirrorDetector.hpp"
+#include "EventDetector.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -18,6 +20,8 @@ private:
     double charge_C;
     double mass_kg;
     SimulationConfig config;
+    static constexpr double mirrorRelativeMomentumTolerance = 1e-9;
+    static constexpr double eventTimeTolerance_s = 1e-12;
 
     void validateConfig() const {
         if (!std::isfinite(config.dt_s) || config.dt_s <= 0.0) {
@@ -86,12 +90,19 @@ public:
         validateConfig();
     }
 
+    const MagneticField& magneticField() const {
+        return field;
+    }
+
     SimulationResult run(const ParticleState& initial) const {
         validateState(initial);
 
         const double atmosphereRadius_m = config.atmosphereHeight_m + C::earthRadius_m;
 
         BorisIntegrator boris(field, charge_C, mass_kg);
+        MirrorDetector mirrorDetector(initial.p.norm() * mirrorRelativeMomentumTolerance);
+        SphereCrossingLocator atmosphereLocator(atmosphereRadius_m, eventTimeTolerance_s);
+        SphereCrossingLocator escapeLocator(config.escapeRadius_m, eventTimeTolerance_s);
         ParticleState current = initial;
         std::uint64_t steps = 0;
 
@@ -110,14 +121,21 @@ public:
 
             if (rCurrent_m > atmosphereRadius_m && rNext_m <= atmosphereRadius_m) {
                 result.outcome = ParticleOutcome::Precipitated;
-                result.eventState = next;
+                result.eventState = atmosphereLocator.locate(current, next, boris).state;
                 result.steps = steps;
                 return result;
             }
 
             if (rCurrent_m < config.escapeRadius_m && rNext_m >= config.escapeRadius_m) {
                 result.outcome = ParticleOutcome::Escaped;
-                result.eventState = next;
+                result.eventState = escapeLocator.locate(current, next, boris).state;
+                result.steps = steps;
+                return result;
+            }
+
+            if (mirrorDetector.bracketed(current, next, field)) {
+                result.outcome = ParticleOutcome::Mirrored;
+                result.eventState = mirrorDetector.locate(current, next, field, boris).state;
                 result.steps = steps;
                 return result;
             }
