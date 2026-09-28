@@ -30,3 +30,9 @@ add_executable(aurora_atmosphere_csv_loader_test tests/atmosphere_csv_loader_tes
 target_compile_definitions(aurora_atmosphere_csv_loader_test PRIVATE
         AURORA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME atmosphere_csv_loader COMMAND aurora_atmosphere_csv_loader_test)
+add_executable(aurora_cross_section_database_test tests/cross_section_database_test.cpp)
+add_test(NAME cross_section_database COMMAND aurora_cross_section_database_test)
+add_executable(aurora_electron_transport_mc_test tests/electron_transport_mc_test.cpp)
+add_test(NAME electron_transport_mc COMMAND aurora_electron_transport_mc_test)
+add_executable(aurora_iaa_cross_section_loader_test tests/iaa_cross_section_loader_test.cpp)
+add_test(NAME iaa_cross_section_loader COMMAND aurora_iaa_cross_section_loader_test)
