@@ -6,8 +6,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <limits>
 #include <map>
+#include <ostream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -63,7 +67,6 @@ public:
                                             const KineticsCatalog& states,
                                             const SpectralLineCatalog& lines) {
         VolumeEmissionGrid result(excitation.configuration(), lines.lines());
-        const std::size_t count = result.grid.cellsX * result.grid.cellsY * result.grid.cellsZ;
         for (const ExcitedStateId& eventState : excitation.states()) {
             bool produced = false;
             for (std::size_t z = 0; z < result.grid.cellsZ && !produced; ++z) {
@@ -86,21 +89,23 @@ public:
                 throw std::out_of_range("VolumeEmissionGrid: no line for produced state " +
                                         state.id);
             }
-            const std::vector<StatePopulation> populations =
-                kinetics.solveGrid(excitation, eventState);
-            if (populations.size() != count) {
-                throw std::logic_error("VolumeEmissionGrid: population size mismatch");
-            }
-            for (const SpectralLine* line : matchingLines) {
-                std::vector<double>& values = result.emissivityByLine.at(line->id);
-                for (std::size_t cell = 0; cell < count; ++cell) {
-                    const double contribution =
-                        line->transitionRate_s1 * populations[cell].density_m3;
-                    const double updated = values[cell] + contribution;
-                    if (!std::isfinite(updated) || updated < 0.0) {
-                        throw std::overflow_error("VolumeEmissionGrid: emissivity overflow");
+            for (std::size_t z = 0; z < result.grid.cellsZ; ++z) {
+                for (std::size_t y = 0; y < result.grid.cellsY; ++y) {
+                    for (std::size_t x = 0; x < result.grid.cellsX; ++x) {
+                        if (excitation.eventRate_s1(eventState, x, y, z) == 0.0) continue;
+                        const double density_m3 =
+                            kinetics.solve(excitation, eventState, x, y, z).density_m3;
+                        const std::size_t cell = result.index(x, y, z);
+                        for (const SpectralLine* line : matchingLines) {
+                            std::vector<double>& values = result.emissivityByLine.at(line->id);
+                            const double updated = values[cell] +
+                                line->transitionRate_s1 * density_m3;
+                            if (!std::isfinite(updated) || updated < 0.0) {
+                                throw std::overflow_error("VolumeEmissionGrid: emissivity overflow");
+                            }
+                            values[cell] = updated;
+                        }
                     }
-                    values[cell] = updated;
                 }
             }
         }
@@ -124,6 +129,50 @@ public:
     const ExcitationGridConfig& configuration() const { return grid; }
     const Vector3& upperCorner_m() const { return upper_m; }
     const std::vector<SpectralLine>& lines() const { return spectralLines; }
+
+    void writeSparseCsv(std::ostream& output) const {
+        output << std::setprecision(17);
+        output << "# grid_origin_m=" << grid.origin_m.x << ',' << grid.origin_m.y
+               << ',' << grid.origin_m.z << '\n';
+        output << "# cell_size_m=" << grid.cellSize_m.x << ',' << grid.cellSize_m.y
+               << ',' << grid.cellSize_m.z << '\n';
+        output << "# shape_xyz=" << grid.cellsX << ',' << grid.cellsY << ','
+               << grid.cellsZ << '\n';
+        output << "x_m,y_m,z_m";
+        for (const SpectralLine& line : spectralLines) {
+            output << ",j_" << line.id << "_ph_m3_s1";
+        }
+        output << '\n';
+        for (std::size_t z = 0; z < grid.cellsZ; ++z) {
+            for (std::size_t y = 0; y < grid.cellsY; ++y) {
+                for (std::size_t x = 0; x < grid.cellsX; ++x) {
+                    const std::size_t cell = index(x, y, z);
+                    bool nonzero = false;
+                    for (const SpectralLine& line : spectralLines) {
+                        nonzero |= emissivityByLine.at(line.id)[cell] > 0.0;
+                    }
+                    if (!nonzero) continue;
+                    output << grid.origin_m.x + (static_cast<double>(x) + 0.5) *
+                                                  grid.cellSize_m.x << ','
+                           << grid.origin_m.y + (static_cast<double>(y) + 0.5) *
+                                                  grid.cellSize_m.y << ','
+                           << grid.origin_m.z + (static_cast<double>(z) + 0.5) *
+                                                  grid.cellSize_m.z;
+                    for (const SpectralLine& line : spectralLines) {
+                        output << ',' << emissivityByLine.at(line.id)[cell];
+                    }
+                    output << '\n';
+                }
+            }
+        }
+        if (!output) throw std::runtime_error("VolumeEmissionGrid: CSV write failed");
+    }
+
+    void saveSparseCsv(const std::filesystem::path& path) const {
+        std::ofstream output(path);
+        if (!output) throw std::runtime_error("VolumeEmissionGrid: cannot open output CSV");
+        writeSparseCsv(output);
+    }
 };
 
 #endif // AURORA_VOLUMEEMISSIONGRID_HPP

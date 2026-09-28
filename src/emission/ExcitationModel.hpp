@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <limits>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -45,6 +46,7 @@ private:
     std::unordered_map<std::string, ExcitedStateId> stateByChannel;
     std::map<ExcitedStateId, std::vector<double>> eventRateByState_s1;
     double ignoredOutsideRate_s1{};
+    double untrackedExcitationRate_s1{};
 
     static std::size_t cellCount(const ExcitationGridConfig& config) {
         if (config.cellsX == 0 || config.cellsY == 0 || config.cellsZ == 0 ||
@@ -85,7 +87,8 @@ private:
 public:
     ExcitationModel(const CrossSectionDatabase& crossSections,
                     ExcitationGridConfig grid,
-                    ExcitationOutOfBounds outOfBounds = ExcitationOutOfBounds::Reject)
+                    ExcitationOutOfBounds outOfBounds = ExcitationOutOfBounds::Reject,
+                    std::vector<ExcitedStateId> selectedStates = {})
         : grid(grid), outOfBounds(outOfBounds) {
         const std::size_t count = cellCount(grid);
         if (!grid.origin_m.isFinite() || !grid.cellSize_m.isFinite() ||
@@ -107,14 +110,18 @@ public:
             outOfBounds != ExcitationOutOfBounds::Ignore) {
             throw std::invalid_argument("ExcitationModel: invalid out-of-bounds policy");
         }
+        const std::set<ExcitedStateId> selected(selectedStates.begin(), selectedStates.end());
         for (const CollisionChannel& channel : crossSections.allChannels()) {
             if (channel.type != CollisionType::Excitation) continue;
             const ExcitedStateId state{channel.species, channel.targetState};
             stateByChannel.emplace(channel.id, state);
-            eventRateByState_s1.try_emplace(state, count, 0.0);
+            if (selected.empty() || selected.contains(state)) {
+                eventRateByState_s1.try_emplace(state, count, 0.0);
+            }
         }
-        if (stateByChannel.empty()) {
-            throw std::invalid_argument("ExcitationModel: no excitation channels");
+        if (stateByChannel.empty() || eventRateByState_s1.empty() ||
+            (!selected.empty() && selected.size() != eventRateByState_s1.size())) {
+            throw std::invalid_argument("ExcitationModel: missing selected excitation channels");
         }
     }
 
@@ -128,6 +135,7 @@ public:
         }
         std::map<std::pair<ExcitedStateId, std::size_t>, double> updates;
         double ignoredRate_s1 = 0.0;
+        double untrackedRate_s1 = 0.0;
         std::size_t accepted = 0;
         for (const ElectronTrackRecord& track : cascade.tracks) {
             for (const ElectronCollisionEvent& event : track.transport.events) {
@@ -136,6 +144,10 @@ public:
                 if (state == stateByChannel.end()) {
                     throw std::invalid_argument("ExcitationModel: unknown excitation channel " +
                                                 event.channelId);
+                }
+                if (!eventRateByState_s1.contains(state->second)) {
+                    untrackedRate_s1 += markerRate_s1;
+                    continue;
                 }
                 std::size_t index = 0;
                 if (!eventIndex(event.position_m, index)) {
@@ -150,7 +162,9 @@ public:
             }
         }
         if (!std::isfinite(ignoredRate_s1) ||
-            !std::isfinite(ignoredOutsideRate_s1 + ignoredRate_s1)) {
+            !std::isfinite(ignoredOutsideRate_s1 + ignoredRate_s1) ||
+            !std::isfinite(untrackedRate_s1) ||
+            !std::isfinite(untrackedExcitationRate_s1 + untrackedRate_s1)) {
             throw std::overflow_error("ExcitationModel: ignored rate overflow");
         }
         for (const auto& [key, delta] : updates) {
@@ -163,6 +177,7 @@ public:
             eventRateByState_s1.at(key.first).at(key.second) += delta;
         }
         ignoredOutsideRate_s1 += ignoredRate_s1;
+        untrackedExcitationRate_s1 += untrackedRate_s1;
         return accepted;
     }
 
@@ -196,6 +211,10 @@ public:
 
     double ignoredEventRate_s1() const {
         return ignoredOutsideRate_s1;
+    }
+
+    double untrackedEventRate_s1() const {
+        return untrackedExcitationRate_s1;
     }
 
     double cellVolume() const {

@@ -50,3 +50,27 @@ target_compile_definitions(aurora_volume_emission_grid_test PRIVATE
 add_test(NAME volume_emission_grid COMMAND aurora_volume_emission_grid_test)
 add_executable(aurora_optical_renderer_test tests/optical_renderer_test.cpp)
 add_test(NAME optical_renderer COMMAND aurora_optical_renderer_test)
+add_executable(aurora_electron_scene_data_test tests/electron_scene_data_test.cpp)
+add_test(NAME electron_scene_data COMMAND aurora_electron_scene_data_test)
+add_executable(aurora_pipeline_test tests/aurora_pipeline_test.cpp)
+find_package(Threads REQUIRED)
+target_link_libraries(aurora_pipeline_test PRIVATE Threads::Threads)
+add_test(NAME aurora_pipeline COMMAND aurora_pipeline_test)
+
+option(AURORA_BUILD_VTK_VISUALIZER "Build the standalone VTK electron scene" ON)
+if(AURORA_BUILD_VTK_VISUALIZER)
+    find_package(VTK 9.0 QUIET COMPONENTS
+            CommonCore CommonDataModel FiltersCore FiltersSources
+            RenderingCore RenderingOpenGL2 RenderingFreeType RenderingAnnotation
+            InteractionStyle IOImage RenderingVolume RenderingVolumeOpenGL2)
+    if(VTK_FOUND)
+        add_executable(aurora_vtk_visualizer src/visualization/vtk_visualizer.cpp)
+        target_compile_definitions(aurora_vtk_visualizer PRIVATE
+                AURORA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        target_link_libraries(aurora_vtk_visualizer PRIVATE ${VTK_LIBRARIES})
+        target_link_libraries(aurora_vtk_visualizer PRIVATE Threads::Threads)
+        vtk_module_autoinit(TARGETS aurora_vtk_visualizer MODULES ${VTK_LIBRARIES})
+    else()
+        message(STATUS "VTK not found: aurora_vtk_visualizer is disabled")
+    endif()
+endif()

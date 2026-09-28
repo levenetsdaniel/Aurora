@@ -5,6 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -56,6 +57,15 @@ void checkBoundaryOutcomes(const UniformField& field) {
         radialState(1.0).p, C::electronMass_kg).norm();
 
     const auto inward = engine.run(radialState(-1.0));
+    std::vector<ParticleState> observed;
+    const auto recorded = engine.run(radialState(-1.0),
+        [&](const ParticleState& state) { observed.push_back(state); });
+    require(observed.size() == recorded.steps + 1 &&
+            observed.front().r.x == startRadius_m &&
+            observed.back().r.x == recorded.eventState.r.x &&
+            observed.back().time_s == recorded.eventState.time_s &&
+            recorded.outcome == inward.outcome,
+            "trajectory observer missed initial or located terminal state");
     const double entryTime_s = (startRadius_m - atmosphereRadius_m) / speed_m_s;
     require(inward.outcome == ParticleOutcome::Precipitated, "inward particle did not precipitate");
     require(inward.steps > 0 && inward.steps < baseConfig().maxSteps, "invalid precipitation step count");

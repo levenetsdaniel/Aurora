@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <stdexcept>
 
 class SimulationEngine {
@@ -95,7 +96,14 @@ public:
     }
 
     SimulationResult run(const ParticleState& initial) const {
+        return run(initial, {});
+    }
+
+    SimulationResult run(
+        const ParticleState& initial,
+        const std::function<void(const ParticleState&)>& observe) const {
         validateState(initial);
+        if (observe) observe(initial);
 
         const double atmosphereRadius_m = config.atmosphereHeight_m + C::earthRadius_m;
 
@@ -123,6 +131,7 @@ public:
                 result.outcome = ParticleOutcome::Precipitated;
                 result.eventState = atmosphereLocator.locate(current, next, boris).state;
                 result.steps = steps;
+                if (observe) observe(result.eventState);
                 return result;
             }
 
@@ -130,6 +139,7 @@ public:
                 result.outcome = ParticleOutcome::Escaped;
                 result.eventState = escapeLocator.locate(current, next, boris).state;
                 result.steps = steps;
+                if (observe) observe(result.eventState);
                 return result;
             }
 
@@ -137,10 +147,12 @@ public:
                 result.outcome = ParticleOutcome::Mirrored;
                 result.eventState = mirrorDetector.locate(current, next, field, boris).state;
                 result.steps = steps;
+                if (observe) observe(result.eventState);
                 return result;
             }
 
             current = next;
+            if (observe) observe(current);
         }
 
         result.outcome = ParticleOutcome::Unresolved;
