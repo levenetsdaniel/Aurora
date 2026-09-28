@@ -120,3 +120,34 @@ completeness of the collision model.
 event changes the direction of subsequent segments. Tests check homogeneous
 mean free path, channel frequencies, the no-collision probability, the energy
 split, direction changes, atmosphere exit and a real local IAA import.
+
+## Secondary electrons and energy ledger (stage 18)
+
+`src/atmosphere/ElectronCascade.hpp` processes the primary electron and its
+ionization secondaries in FIFO order. Configure the path budget **per electron**,
+integration step, event/track caps and a sub-thermal cutoff explicitly:
+
+```cpp
+#include "src/atmosphere/ElectronCascade.hpp"
+
+ElectronTransportMC transport(atmosphere, crossSections);
+ElectronCascade cascade(transport, {1000.0, 1.0, 10000, 100000, 1.0});
+Random rng(12345);
+auto result = cascade.run(position_m, direction, energy_eV, rng);
+if (result.limitReached) {
+    // Increase limits or retain result.ledger.remaining_eV as unresolved energy.
+}
+double relativeEnergyError = result.ledger.relativeResidual();
+```
+
+`result.tracks` retains parent indices, collision histories and an individual
+`EnergyLedger`. On a single track, energy transferred to children appears in
+`secondaryTransfer_eV`. In the cascade-wide ledger it is **not** a final sink:
+the child track's thermal, escaped or remaining energy is counted instead.
+`secondaryGenerated_eV` is a diagnostic sum. `remaining_eV` includes electrons
+that reach their path budget and work left by computational caps; atmospheric
+boundary crossings go to `escaped_eV`. Electrons at or below the configured
+cutoff deposit their remaining kinetic energy into `thermal_eV`. That cutoff
+is a simple stopping approximation, not a measured low-energy transport model.
+Tests cover energy conservation without collisions, with one excitation, with
+ionization and a secondary, and with track/event limits.

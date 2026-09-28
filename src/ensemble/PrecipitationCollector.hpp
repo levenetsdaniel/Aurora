@@ -17,6 +17,7 @@ struct PrecipitatingElectron {
     ParticleState state;
     double energy_eV{};
     double incidenceCosine{};
+    // Electrons per second represented by this precipitating marker.
     double weight{};
 };
 

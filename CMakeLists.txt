@@ -36,3 +36,17 @@ add_executable(aurora_electron_transport_mc_test tests/electron_transport_mc_tes
 add_test(NAME electron_transport_mc COMMAND aurora_electron_transport_mc_test)
 add_executable(aurora_iaa_cross_section_loader_test tests/iaa_cross_section_loader_test.cpp)
 add_test(NAME iaa_cross_section_loader COMMAND aurora_iaa_cross_section_loader_test)
+add_executable(aurora_electron_cascade_test tests/electron_cascade_test.cpp)
+add_test(NAME electron_cascade COMMAND aurora_electron_cascade_test)
+add_executable(aurora_excitation_model_test tests/excitation_model_test.cpp)
+add_test(NAME excitation_model COMMAND aurora_excitation_model_test)
+add_executable(aurora_excited_state_kinetics_test tests/excited_state_kinetics_test.cpp)
+target_compile_definitions(aurora_excited_state_kinetics_test PRIVATE
+        AURORA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME excited_state_kinetics COMMAND aurora_excited_state_kinetics_test)
+add_executable(aurora_volume_emission_grid_test tests/volume_emission_grid_test.cpp)
+target_compile_definitions(aurora_volume_emission_grid_test PRIVATE
+        AURORA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME volume_emission_grid COMMAND aurora_volume_emission_grid_test)
+add_executable(aurora_optical_renderer_test tests/optical_renderer_test.cpp)
+add_test(NAME optical_renderer COMMAND aurora_optical_renderer_test)

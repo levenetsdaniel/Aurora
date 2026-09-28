@@ -1,0 +1,5 @@
+species,event_state,id
+O,O(1D),O(1D)
+O,O(1S),O(1S)
+O,O -> O*((2p4)1D),O(1D)
+O,O -> O*((2p4)1S),O(1S)

@@ -1,5 +1,6 @@
 #include "../src/io/IaaCrossSectionLoader.hpp"
 #include "../src/atmosphere/ElectronTransportMC.hpp"
+#include "../src/atmosphere/ElectronCascade.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -85,6 +86,13 @@ int main() {
                                          500.0, 10.0, 1, rng);
         assert(track.events.size() == 1);
         assert(track.events[0].position_m.isFinite());
+        const ElectronCascade cascade(transport, {50.0, 1.0, 100, 100, 1.0});
+        Random cascadeRng(321);
+        const auto cascadeResult = cascade.run(
+            {C::earthRadius_m + 1000.0, 0.0, 0.0},
+            {1.0, 0.0, 0.0}, 1500.0, cascadeRng);
+        assert(!cascadeResult.tracks.empty());
+        assert(cascadeResult.ledger.relativeResidual() < 1e-10);
         bool aboveModelRejected = false;
         try {
             modeled.requireEnergyCoverage("N2", 1000.0, 2000.1);

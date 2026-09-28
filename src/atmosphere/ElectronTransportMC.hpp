@@ -43,7 +43,7 @@ struct ElectronTransportResult {
 // Piecewise-straight transport with a deliberately approximate collision
 // model: elastic/ionization directions are isotropic in the lab frame, elastic
 // recoil is neglected, and ionization excess energy is split uniformly.
-// Secondaries are returned as events, not transported (stage 18).
+// Secondaries are returned as events; ElectronCascade transports them.
 class ElectronTransportMC {
 private:
     const AtmosphereModel& atmosphere;
