@@ -1,6 +1,8 @@
 #include "ElectronSceneData.hpp"
 #include "VtkElectronScene.hpp"
 #include "AuroraPipeline.hpp"
+#include "ProgressReporter.hpp"
+#include "../ensemble/ArcElectronSource.hpp"
 #include "../io/AtmosphereCsvLoader.hpp"
 #include "../io/IaaCrossSectionLoader.hpp"
 #include "../io/KineticsCsvLoader.hpp"
@@ -31,43 +33,52 @@
 
 namespace {
 
-InitialCondition sampleElectron(const DipoleField& field, Random& random,
-                                 std::uint64_t id, double markerRate_s1,
-                                 bool auroralArc) {
-    const double longitude = auroralArc ?
-        -0.7 + 1.4 * random.uniform01() :
-        2.0 * std::numbers::pi * random.uniform01();
-    const double colatitude = auroralArc ?
-        0.27 + 0.05 * random.uniform01() :
-        0.20 + 0.17 * random.uniform01();
-    const double radius_m = C::earthRadius_m + 450000.0;
-    const Vector3 position_m(
-        radius_m * std::sin(colatitude) * std::cos(longitude),
-        radius_m * std::sin(colatitude) * std::sin(longitude),
-        radius_m * std::cos(colatitude));
-    const Vector3 magnetic = field.evaluate(position_m);
-    const Vector3 along = magnetic * (-1.0 / magnetic.norm());
-    const Vector3 reference(0.0, 0.0, 1.0);
-    const Vector3 across = (reference - along * reference.dot(along)).normalize();
-    const Vector3 around = along.cross(across);
-    const double pitch = 0.04 + 0.18 * random.uniform01();
-    const double phase = 2.0 * std::numbers::pi * random.uniform01();
-    const Vector3 direction = along * std::cos(pitch) +
-        (across * std::cos(phase) + around * std::sin(phase)) * std::sin(pitch);
-    const double energy_eV = 5000.0 + 20000.0 * random.uniform01();
-    const double momentum = Relativity::momentumMagnitudeFromKineticEnergy_J(
-        energy_eV * C::elementaryCharge_C, C::electronMass_kg);
-    return {id, {position_m, direction * momentum, 0.0}, energy_eV,
-            pitch, phase, markerRate_s1};
+const char* outcomeName(ParticleOutcome outcome) {
+    switch (outcome) {
+        case ParticleOutcome::Precipitated: return "Precipitated";
+        case ParticleOutcome::Mirrored: return "Mirrored";
+        case ParticleOutcome::Escaped: return "Escaped";
+        case ParticleOutcome::Unresolved: return "Unresolved";
+    }
+    throw std::logic_error("Unknown particle outcome");
+}
+
+void saveParticleOutcomes(const ElectronSceneData& scene,
+                          const std::filesystem::path& path) {
+    std::ofstream output(path);
+    if (!output) throw std::runtime_error("Cannot write particle outcomes");
+    output << "id,energy_eV,pitch_deg,phase_deg,initial_time_s,initial_x_m,initial_y_m,initial_z_m,"
+              "initial_px_kg_m_s,initial_py_kg_m_s,initial_pz_kg_m_s,outcome,"
+              "event_time_s,event_x_m,event_y_m,event_z_m,weight_electrons_s1\n";
+    output << std::setprecision(17);
+    for (const ElectronPath& particle : scene.paths) {
+        output << particle.id << ',' << particle.energy_eV << ','
+               << particle.initialPitch_rad * 180.0 / std::numbers::pi << ','
+               << particle.initialGyroPhase_rad * 180.0 / std::numbers::pi << ','
+               << particle.initialState.time_s << ','
+               << particle.initialState.r.x << ','
+               << particle.initialState.r.y << ','
+               << particle.initialState.r.z << ','
+               << particle.initialState.p.x << ','
+               << particle.initialState.p.y << ','
+               << particle.initialState.p.z << ','
+               << outcomeName(particle.outcome) << ','
+               << particle.terminalState.time_s << ','
+               << particle.terminalState.r.x << ','
+               << particle.terminalState.r.y << ','
+               << particle.terminalState.r.z << ',' << particle.weight_s1 << '\n';
+    }
+    if (!output) throw std::runtime_error("Particle outcome CSV write failed");
 }
 
 ElectronSceneData makeScene(std::size_t markerCount, std::uint64_t seed,
                             std::size_t threads, double sourceRate_s1,
-                            bool auroralArc) {
+                            bool auroralArc, double minPitch_rad,
+                            double maxPitch_rad) {
     constexpr double atmosphereHeight_m = 150000.0;
     DipoleField field;
     const SimulationConfig config{2e-8, atmosphereHeight_m,
-        C::earthRadius_m + 800000.0, 0.015, 750000};
+        C::earthRadius_m + 800000.0, 0.05, 2500000};
     const SimulationEngine engine(field, -C::elementaryCharge_C,
                                   C::electronMass_kg, config);
     const ElectronSceneSampler sampler(engine, field);
@@ -75,16 +86,18 @@ ElectronSceneData makeScene(std::size_t markerCount, std::uint64_t seed,
     ElectronSceneData scene;
     scene.atmosphereHeight_m = atmosphereHeight_m;
     scene.paths.reserve(markerCount);
-    const double markerRate_s1 = sourceRate_s1 / static_cast<double>(markerCount);
+    const ArcElectronSource source(field, auroralArc, minPitch_rad, maxPitch_rad,
+                                   sourceRate_s1, markerCount);
     std::vector<InitialCondition> initialConditions;
     initialConditions.reserve(markerCount);
     for (std::size_t index = 0; index < markerCount; ++index) {
-        initialConditions.push_back(sampleElectron(
-            field, random, index + 1, markerRate_s1, auroralArc));
+        initialConditions.push_back(source.sample(random, index + 1));
     }
     scene.paths.resize(markerCount);
+    ProgressReporter orbitProgress("Electron trajectories", markerCount, std::cerr);
     parallelFor(markerCount, threads, [&](std::size_t index) {
         scene.paths[index] = sampler.traceElectron(initialConditions[index], 250);
+        orbitProgress.advance();
     });
     for (std::size_t index = 0; index < markerCount; ++index) {
         if (index % std::max<std::size_t>(1, markerCount / 12) == 0) {
@@ -172,7 +185,8 @@ AuroraPipelineResult makeAurora(const ElectronSceneData& scene,
         {120000.0, 250.0, 20000, 2048, 1.0},
         threads, 64, seed};
     const AuroraPipeline pipeline(atmosphere, crossSections, states, lines, config);
-    return pipeline.run(electrons);
+    ProgressReporter cascadeProgress("Atmospheric cascades", electrons.size(), std::cerr);
+    return pipeline.run(electrons, [&] { cascadeProgress.advance(); });
 }
 
 void saveSpectralViews(const ElectronSceneData& scene,
@@ -219,6 +233,8 @@ int main(int argc, char** argv) {
         std::uint64_t seed = 20260928;
         std::size_t threads = std::max(1u, std::thread::hardware_concurrency());
         double sourceRate_s1 = 1.0e20;
+        double minPitch_deg = 0.0;
+        double maxPitch_deg = 90.0;
         std::filesystem::path iaaRoot;
         bool aurora = false;
         bool interactive = false;
@@ -236,6 +252,10 @@ int main(int argc, char** argv) {
                 cascadeMarkers = std::stoull(argv[++index]);
             } else if (argument == "--source-rate" && index + 1 < argc) {
                 sourceRate_s1 = std::stod(argv[++index]);
+            } else if (argument == "--pitch-min-deg" && index + 1 < argc) {
+                minPitch_deg = std::stod(argv[++index]);
+            } else if (argument == "--pitch-max-deg" && index + 1 < argc) {
+                maxPitch_deg = std::stod(argv[++index]);
             } else if (argument == "--iaa-root" && index + 1 < argc) {
                 iaaRoot = argv[++index];
             } else if (argument == "--aurora") {
@@ -247,22 +267,40 @@ int main(int argc, char** argv) {
                     "Usage: aurora_vtk_visualizer [--output image.png] "
                     "[--markers N] [--cascade-markers N] [--seed N] "
                     "[--threads N] [--source-rate N] "
+                    "[--pitch-min-deg N] [--pitch-max-deg N] "
                     "[--aurora --iaa-root DIR] [--interactive]");
             }
         }
         if (markerCount == 0 || markerCount > 5000 ||
             threads == 0 || threads > 64 ||
             !std::isfinite(sourceRate_s1) || sourceRate_s1 <= 0.0 ||
+            !std::isfinite(minPitch_deg) || !std::isfinite(maxPitch_deg) ||
+            minPitch_deg < 0.0 || minPitch_deg >= maxPitch_deg ||
+            maxPitch_deg > 90.0 ||
             output.empty() || output.extension() != ".png" ||
             (aurora && iaaRoot.empty())) {
             throw std::invalid_argument("Invalid marker count, rate, thread count, IAA root or output path");
         }
         const ElectronSceneData scene = makeScene(
-            markerCount, seed, threads, sourceRate_s1, aurora);
+            markerCount, seed, threads, sourceRate_s1, aurora,
+            minPitch_deg * std::numbers::pi / 180.0,
+            maxPitch_deg * std::numbers::pi / 180.0);
         std::cout << "Simulated " << scene.paths.size() << " markers; "
-                  << scene.precipitationCount() << " reached the atmosphere\n";
+                  << scene.precipitationCount() << " precipitated, "
+                  << scene.countOutcome(ParticleOutcome::Mirrored) << " mirrored, "
+                  << scene.countOutcome(ParticleOutcome::Escaped) << " escaped, "
+                  << scene.countOutcome(ParticleOutcome::Unresolved) << " unresolved"
+                  << std::endl;
+        if (!output.parent_path().empty()) {
+            std::filesystem::create_directories(output.parent_path());
+        }
+        const auto outcomesPath = output.parent_path() /
+            (output.stem().string() + "_particles.csv");
+        saveParticleOutcomes(scene, outcomesPath);
         VtkElectronScene visualizer(scene);
-        if (aurora) {
+        if (aurora && scene.precipitationCount() == 0) {
+            std::cout << "No precipitating markers; skipping atmospheric emission" << std::endl;
+        } else if (aurora) {
             const AuroraPipelineResult result = makeAurora(
                 scene, iaaRoot, threads, seed, cascadeMarkers);
             double greenPeak = 0.0;
@@ -304,6 +342,13 @@ int main(int argc, char** argv) {
             manifest << std::setprecision(17)
                      << "seed=" << seed << '\n'
                      << "visual_markers=" << markerCount << '\n'
+                     << "pitch_min_deg=" << minPitch_deg << '\n'
+                     << "pitch_max_deg=" << maxPitch_deg << '\n'
+                     << "precipitated_markers=" << scene.precipitationCount() << '\n'
+                     << "mirrored_markers=" << scene.countOutcome(ParticleOutcome::Mirrored) << '\n'
+                     << "escaped_markers=" << scene.countOutcome(ParticleOutcome::Escaped) << '\n'
+                     << "unresolved_markers=" << scene.countOutcome(ParticleOutcome::Unresolved) << '\n'
+                     << "particles_csv=" << outcomesPath.string() << '\n'
                      << "cascade_primaries=" << result.primaryCount << '\n'
                      << "threads=" << threads << '\n'
                      << "source_rate_electrons_s1=" << sourceRate_s1 << '\n'

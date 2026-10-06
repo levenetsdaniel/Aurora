@@ -1,4 +1,6 @@
 #include "../src/ensemble/ElectronSource.hpp"
+#include "../src/ensemble/ArcElectronSource.hpp"
+#include "../src/physics/DipoleField.hpp"
 #include "../src/physics/UniformField.hpp"
 
 #include <cmath>
@@ -113,12 +115,61 @@ void checkInvalidParameters() {
     }, "zero magnetic field was accepted");
 }
 
+void checkArcSource() {
+    const DipoleField field;
+    constexpr std::size_t count = 10000;
+    const ArcElectronSource source(field, true, 0.0, std::numbers::pi / 2.0,
+                                    1e20, count);
+    Random first(20260928);
+    Random repeated(20260928);
+    double cosineSum = 0.0;
+    double weightSum = 0.0;
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto particle = source.sample(first, index + 1);
+        const auto again = source.sample(repeated, index + 1);
+        const Vector3 B = field.evaluate(particle.state.r);
+        const double cosine = -particle.state.p.dot(B) /
+            (particle.state.p.norm() * B.norm());
+        require(particle.pitch_rad == again.pitch_rad &&
+                particle.state.p.x == again.state.p.x &&
+                particle.state.p.y == again.state.p.y &&
+                particle.state.p.z == again.state.p.z &&
+                std::abs(particle.state.r.norm() - C::earthRadius_m - 450000.0) < 1e-6 &&
+                particle.energy_eV >= 5000.0 && particle.energy_eV < 25000.0 &&
+                particle.pitch_rad >= 0.0 &&
+                particle.pitch_rad <= std::numbers::pi / 2.0 &&
+                std::abs(cosine - std::cos(particle.pitch_rad)) < 1e-12,
+                "arc source sampled an invalid or nonreproducible electron");
+        cosineSum += cosine;
+        weightSum += particle.weight;
+    }
+    require(std::abs(cosineSum / count - 0.5) < 0.02 &&
+            std::abs(weightSum / source.totalPhysicalRate() - 1.0) < 1e-11,
+            "arc source did not cover the hemisphere with normalized weights");
+    requireInvalid([&] {
+        (void)ArcElectronSource(field, true, 0.9, 0.8, 1e20, count);
+    }, "reversed pitch range was accepted");
+    requireInvalid([&] {
+        (void)ArcElectronSource(field, true, 0.0, 1.6, 1e20, count);
+    }, "pitch angles outside the downward hemisphere were accepted");
+    const ArcElectronSource limited(field, true, 50.0 * std::numbers::pi / 180.0,
+                                     80.0 * std::numbers::pi / 180.0, 1e20, count);
+    Random limitedRandom(7);
+    for (std::size_t index = 0; index < 100; ++index) {
+        const double pitch = limited.sample(limitedRandom, index + 1).pitch_rad;
+        require(pitch >= 50.0 * std::numbers::pi / 180.0 &&
+                pitch <= 80.0 * std::numbers::pi / 180.0,
+                "arc source ignored configured pitch limits");
+    }
+}
+
 } // namespace
 
 int main() {
     try {
         checkSampling();
         checkInvalidParameters();
+        checkArcSource();
         std::cout << "ElectronSource checks passed\n";
     } catch (const std::exception& error) {
         std::cerr << "ElectronSource check failed: " << error.what() << '\n';

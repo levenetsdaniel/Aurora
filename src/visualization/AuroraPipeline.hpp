@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -81,7 +82,9 @@ public:
         }
     }
 
-    AuroraPipelineResult run(const std::vector<PrecipitatingElectron>& electrons) const {
+    // Called once per completed primary, possibly from multiple worker threads.
+    AuroraPipelineResult run(const std::vector<PrecipitatingElectron>& electrons,
+                             const std::function<void()>& onPrimaryComplete = {}) const {
         const auto selected = selectedStates();
         if (selected.empty()) {
             throw std::invalid_argument("AuroraPipeline: no excitation channels match lines");
@@ -102,6 +105,7 @@ public:
                 Random rng(markerSeed(config.seed, electron.id));
                 results[offset] = cascade.run(electron.state.r, velocity,
                                               electron.energy_eV, rng);
+                if (onPrimaryComplete) onPrimaryComplete();
             });
             // Deterministic merge, independent of scheduling and thread count.
             for (std::size_t offset = 0; offset < count; ++offset) {

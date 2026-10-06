@@ -1,5 +1,7 @@
 #include "../src/visualization/AuroraPipeline.hpp"
+#include "../src/visualization/ProgressReporter.hpp"
 
+#include <atomic>
 #include <cmath>
 #include <iostream>
 #include <sstream>
@@ -56,8 +58,11 @@ void checkParallelReproducibility() {
     const auto serial = AuroraPipeline(atmosphere, cross, states, lines, config).run(electrons);
     config.threads = 4;
     config.batchSize = 8;
-    const auto parallel = AuroraPipeline(atmosphere, cross, states, lines, config).run(electrons);
+    std::atomic<std::size_t> completed{0};
+    const auto parallel = AuroraPipeline(atmosphere, cross, states, lines, config).run(
+        electrons, [&] { completed.fetch_add(1, std::memory_order_relaxed); });
     require(serial.primaryCount == electrons.size() &&
+            completed.load(std::memory_order_relaxed) == electrons.size() &&
             parallel.primaryCount == serial.primaryCount &&
             parallel.cascadeTracks == serial.cascadeTracks &&
             parallel.excitationEvents == serial.excitationEvents &&
@@ -86,11 +91,22 @@ void checkParallelReproducibility() {
             "emission CSV lacks separate physical spectral fields");
 }
 
+void checkProgressReporter() {
+    std::ostringstream output;
+    ProgressReporter progress("Atmospheric cascades", 20, output);
+    parallelFor(20, 4, [&](std::size_t) { progress.advance(); });
+    const std::string log = output.str();
+    require(log.find("Atmospheric cascades: 0% (0/20)\n") == 0 &&
+            log.find("Atmospheric cascades: 100% (20/20)\n") != std::string::npos,
+            "progress reporter did not log start and completion");
+}
+
 } // namespace
 
 int main() {
     try {
         checkParallelReproducibility();
+        checkProgressReporter();
         std::cout << "AuroraPipeline checks passed\n";
     } catch (const std::exception& error) {
         std::cerr << "AuroraPipeline check failed: " << error.what() << '\n';

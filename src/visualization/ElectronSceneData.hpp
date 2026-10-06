@@ -20,6 +20,9 @@ struct ElectronPath {
     ParticleOutcome outcome{ParticleOutcome::Unresolved};
     ParticleState terminalState;
     std::vector<Vector3> positions_m;
+    double initialPitch_rad{};
+    double initialGyroPhase_rad{};
+    ParticleState initialState;
 };
 
 struct ElectronSceneData {
@@ -32,6 +35,11 @@ struct ElectronSceneData {
             [](const ElectronPath& path) {
                 return path.outcome == ParticleOutcome::Precipitated;
             }));
+    }
+
+    std::size_t countOutcome(ParticleOutcome outcome) const {
+        return static_cast<std::size_t>(std::count_if(paths.begin(), paths.end(),
+            [outcome](const ElectronPath& path) { return path.outcome == outcome; }));
     }
 };
 
@@ -84,6 +92,9 @@ public:
             throw std::invalid_argument("ElectronSceneSampler: invalid marker or stride");
         }
         ElectronPath path{initial.id, initial.energy_eV, initial.weight};
+        path.initialPitch_rad = initial.pitch_rad;
+        path.initialGyroPhase_rad = initial.gyroPhase_rad;
+        path.initialState = initial.state;
         std::uint64_t seen = 0;
         const SimulationResult result = engine.run(initial.state,
             [&](const ParticleState& state) {

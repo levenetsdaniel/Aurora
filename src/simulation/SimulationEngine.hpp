@@ -21,7 +21,6 @@ private:
     double charge_C;
     double mass_kg;
     SimulationConfig config;
-    static constexpr double mirrorRelativeMomentumTolerance = 1e-9;
     static constexpr double eventTimeTolerance_s = 1e-12;
 
     void validateConfig() const {
@@ -108,7 +107,9 @@ public:
         const double atmosphereRadius_m = config.atmosphereHeight_m + C::earthRadius_m;
 
         BorisIntegrator boris(field, charge_C, mass_kg);
-        MirrorDetector mirrorDetector(initial.p.norm() * mirrorRelativeMomentumTolerance);
+        // A nonzero dead zone can miss a sign reversal when one sampled value
+        // falls inside it; the loss-cone boundary is especially sensitive.
+        MirrorDetector mirrorDetector;
         SphereCrossingLocator atmosphereLocator(atmosphereRadius_m, eventTimeTolerance_s);
         SphereCrossingLocator escapeLocator(config.escapeRadius_m, eventTimeTolerance_s);
         ParticleState current = initial;

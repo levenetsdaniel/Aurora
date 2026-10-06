@@ -100,6 +100,8 @@ void checkFalseCandidates() {
     const ParticleState smallNegative{after.r, Vector3(0.0, 0.0, -p * 0.001), 1e-5};
     require(!detector.bracketed(smallPositive, smallNegative, field),
             "momentum tolerance did not suppress a tiny sign change");
+    require(MirrorDetector(0.0).bracketed(smallPositive, smallNegative, field),
+            "zero-tolerance detector missed a sign change");
 
     const BorisIntegrator integrator(field, 0.0, C::electronMass_kg);
     requireThrows<std::invalid_argument>([&] {

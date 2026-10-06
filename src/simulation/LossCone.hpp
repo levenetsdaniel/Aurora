@@ -7,6 +7,7 @@
 #include <cmath>
 #include <numbers>
 #include <stdexcept>
+#include <string>
 
 struct LossConeBracket {
     double precipitatingPitch_rad{};
@@ -19,13 +20,13 @@ private:
     const SimulationEngine& engine;
     unsigned maxIterations;
 
-    ParticleOutcome outcomeAtPitch(const ParticleState& source, const Vector3& along,
+    SimulationResult resultAtPitch(const ParticleState& source, const Vector3& along,
                                    const Vector3& perpendicular, double momentum,
                                    double pitch_rad) const {
         ParticleState trial = source;
         trial.p = (along * std::cos(pitch_rad) +
                    perpendicular * std::sin(pitch_rad)) * momentum;
-        return engine.run(trial).outcome;
+        return engine.run(trial);
     }
 
 public:
@@ -71,12 +72,12 @@ public:
         const Vector3 perpendicular = transverse / transverseNorm;
         const double momentum = std::sqrt(momentum2);
 
-        if (outcomeAtPitch(equatorialTemplate, along, perpendicular, momentum,
-                           lowPitch_rad) != ParticleOutcome::Precipitated) {
+        if (resultAtPitch(equatorialTemplate, along, perpendicular, momentum,
+                          lowPitch_rad).outcome != ParticleOutcome::Precipitated) {
             throw std::invalid_argument("LossConeScanner: lower pitch must precipitate");
         }
-        if (outcomeAtPitch(equatorialTemplate, along, perpendicular, momentum,
-                           highPitch_rad) != ParticleOutcome::Mirrored) {
+        if (resultAtPitch(equatorialTemplate, along, perpendicular, momentum,
+                          highPitch_rad).outcome != ParticleOutcome::Mirrored) {
             throw std::invalid_argument("LossConeScanner: upper pitch must mirror");
         }
 
@@ -91,14 +92,25 @@ public:
                 throw std::runtime_error("LossConeScanner: pitch tolerance is below floating-point resolution");
             }
 
-            const ParticleOutcome outcome = outcomeAtPitch(
+            const SimulationResult result = resultAtPitch(
                 equatorialTemplate, along, perpendicular, momentum, middle);
+            const ParticleOutcome outcome = result.outcome;
             if (outcome == ParticleOutcome::Precipitated) {
                 lowPitch_rad = middle;
             } else if (outcome == ParticleOutcome::Mirrored) {
                 highPitch_rad = middle;
             } else {
-                throw std::runtime_error("LossConeScanner: midpoint escaped or remained unresolved");
+                throw std::runtime_error("LossConeScanner: midpoint " +
+                    std::to_string(middle * 180.0 / std::numbers::pi) +
+                    " deg " + (outcome == ParticleOutcome::Escaped ?
+                    "escaped" : "remained unresolved") +
+                    " at t=" + std::to_string(result.eventState.time_s) +
+                    " s, r=" + std::to_string(result.eventState.r.norm()) +
+                    " m, p_parallel/p=" + std::to_string(
+                        result.eventState.p.dot(engine.magneticField().evaluate(
+                            result.eventState.r)) /
+                        (result.eventState.p.norm() *
+                         engine.magneticField().evaluate(result.eventState.r).norm())));
             }
             iterations++;
         }

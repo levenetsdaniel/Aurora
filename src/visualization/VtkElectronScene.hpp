@@ -7,14 +7,11 @@
 #include <vtkActor.h>
 #include <vtkCamera.h>
 #include <vtkCellArray.h>
-#include <vtkDoubleArray.h>
 #include <vtkColorTransferFunction.h>
 #include <vtkGlyph3D.h>
 #include <vtkImageData.h>
-#include <vtkLookupTable.h>
 #include <vtkNew.h>
 #include <vtkPNGWriter.h>
-#include <vtkPointData.h>
 #include <vtkPoints.h>
 #include <vtkPolyData.h>
 #include <vtkPolyDataMapper.h>
@@ -24,7 +21,6 @@
 #include <vtkRenderWindow.h>
 #include <vtkRenderWindowInteractor.h>
 #include <vtkRenderer.h>
-#include <vtkScalarBarActor.h>
 #include <vtkSmartPointer.h>
 #include <vtkSphereSource.h>
 #include <vtkSmartVolumeMapper.h>
@@ -36,6 +32,7 @@
 #include <vtkWindowToImageFilter.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -50,9 +47,7 @@ private:
     vtkSmartPointer<vtkRenderWindow> window;
 
     static void addLine(vtkPoints* points, vtkCellArray* cells,
-                        const std::vector<Vector3>& positions_m,
-                        vtkDoubleArray* energy_keV = nullptr,
-                        double value_keV = 0.0) {
+                        const std::vector<Vector3>& positions_m) {
         if (positions_m.size() < 2) return;
         vtkNew<vtkPolyLine> polyline;
         polyline->GetPointIds()->SetNumberOfIds(
@@ -67,7 +62,6 @@ private:
                 position.y / C::earthRadius_m,
                 position.z / C::earthRadius_m);
             polyline->GetPointIds()->SetId(static_cast<vtkIdType>(index), id);
-            if (energy_keV) energy_keV->InsertNextValue(value_keV);
         }
         cells->InsertNextCell(polyline);
     }
@@ -151,14 +145,9 @@ private:
     }
 
     void addElectronPaths(const ElectronSceneData& scene) {
-        vtkNew<vtkPoints> points;
-        vtkNew<vtkCellArray> lines;
-        vtkNew<vtkDoubleArray> energies;
-        energies->SetName("Electron energy (keV)");
-        double low_keV = std::numeric_limits<double>::infinity();
-        double high_keV = 0.0;
         std::vector<Vector3> sources;
         std::vector<Vector3> impacts;
+        std::vector<Vector3> mirrors;
         const std::size_t markerStride =
             std::max<std::size_t>(1, (scene.paths.size() + 199) / 200);
         for (std::size_t pathIndex = 0; pathIndex < scene.paths.size(); ++pathIndex) {
@@ -168,61 +157,57 @@ private:
                 path.weight_s1 < 0.0) {
                 throw std::invalid_argument("VtkElectronScene: invalid electron path");
             }
-            const double energy_keV = path.energy_eV / 1000.0;
-            low_keV = std::min(low_keV, energy_keV);
-            high_keV = std::max(high_keV, energy_keV);
-            addLine(points, lines, path.positions_m, energies, energy_keV);
             if (pathIndex % markerStride == 0) {
                 sources.push_back(path.positions_m.front());
                 if (path.outcome == ParticleOutcome::Precipitated) {
                     impacts.push_back(path.positions_m.back());
+                } else if (path.outcome == ParticleOutcome::Mirrored) {
+                    mirrors.push_back(path.positions_m.back());
                 }
             }
         }
-        if (lines->GetNumberOfCells() > 0) {
+
+        const std::array<ParticleOutcome, 4> outcomes{
+            ParticleOutcome::Precipitated, ParticleOutcome::Mirrored,
+            ParticleOutcome::Escaped, ParticleOutcome::Unresolved};
+        const std::array<std::array<double, 3>, 4> colors{{
+            {{1.0, 0.78, 0.20}}, {{0.85, 0.36, 0.95}},
+            {{0.60, 0.80, 1.0}}, {{0.55, 0.58, 0.65}}
+        }};
+        for (std::size_t category = 0; category < outcomes.size(); ++category) {
+            vtkNew<vtkPoints> points;
+            vtkNew<vtkCellArray> lines;
+            for (const ElectronPath& path : scene.paths) {
+                if (path.outcome == outcomes[category]) {
+                    addLine(points, lines, path.positions_m);
+                }
+            }
+            if (lines->GetNumberOfCells() == 0) continue;
             vtkNew<vtkPolyData> data;
             data->SetPoints(points);
             data->SetLines(lines);
-            data->GetPointData()->SetScalars(energies);
             vtkNew<vtkTubeFilter> tubes;
             tubes->SetInputData(data);
             tubes->SetRadius(scene.paths.size() > 300 ? 0.00055 : 0.0012);
             tubes->SetNumberOfSides(6);
-            vtkNew<vtkLookupTable> colors;
-            colors->SetHueRange(0.52, 0.02);
-            colors->SetSaturationRange(0.8, 0.95);
-            colors->SetValueRange(0.9, 1.0);
-            colors->Build();
             vtkNew<vtkPolyDataMapper> mapper;
             mapper->SetInputConnection(tubes->GetOutputPort());
-            mapper->SetLookupTable(colors);
-            mapper->SetScalarModeToUsePointData();
-            if (low_keV == high_keV) {
-                low_keV *= 0.9;
-                high_keV *= 1.1;
-            }
-            mapper->SetScalarRange(low_keV, high_keV);
             vtkNew<vtkActor> actor;
             actor->SetMapper(mapper);
             actor->GetProperty()->SetAmbient(0.5);
             actor->GetProperty()->SetOpacity(scene.paths.size() > 300 ? 0.42 : 1.0);
+            actor->GetProperty()->SetColor(colors[category][0],
+                                           colors[category][1],
+                                           colors[category][2]);
             renderer->AddActor(actor);
-            vtkNew<vtkScalarBarActor> legend;
-            legend->SetLookupTable(colors);
-            legend->SetTitle("Electron energy (keV)");
-            legend->SetNumberOfLabels(4);
-            legend->SetWidth(0.09);
-            legend->SetHeight(0.35);
-            legend->SetPosition(0.87, 0.1);
-            legend->GetTitleTextProperty()->SetColor(0.9, 0.95, 1.0);
-            legend->GetLabelTextProperty()->SetColor(0.9, 0.95, 1.0);
-            renderer->AddViewProp(legend);
         }
         const bool dense = scene.paths.size() > 300;
         addMarkers(sources, dense ? 0.0012 : 0.0022,
                    0.25, 0.95, 1.0, dense ? 0.65 : 1.0);
         addMarkers(impacts, dense ? 0.0016 : 0.0032,
                    1.0, 0.5, 0.16, dense ? 0.65 : 1.0);
+        addMarkers(mirrors, dense ? 0.0016 : 0.0032,
+                   0.95, 0.45, 1.0, dense ? 0.65 : 1.0);
     }
 
 public:
@@ -250,7 +235,8 @@ public:
         vtkNew<vtkTextActor> title;
         const std::string caption = "ELECTRON PRECIPITATION  |  " +
             std::to_string(scene.paths.size()) + " markers  |  " +
-            std::to_string(scene.precipitationCount()) + " impacts";
+            std::to_string(scene.precipitationCount()) + " atmosphere entries  |  " +
+            std::to_string(scene.countOutcome(ParticleOutcome::Mirrored)) + " mirrored";
         title->SetInput(caption.c_str());
         title->SetDisplayPosition(24, height - 48);
         title->GetTextProperty()->SetFontSize(22);
@@ -258,7 +244,7 @@ public:
         title->GetTextProperty()->BoldOn();
         renderer->AddViewProp(title);
         vtkNew<vtkTextActor> key;
-        key->SetInput("Cyan: injection   Orange: atmosphere entry   Blue: dipole field");
+        key->SetInput("Gold: precipitated   Magenta: mirrored   Cyan: injection   Orange: atmosphere entry   Blue: field");
         key->SetDisplayPosition(24, 22);
         key->GetTextProperty()->SetFontSize(16);
         key->GetTextProperty()->SetColor(0.77, 0.87, 0.98);

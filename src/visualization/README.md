@@ -3,8 +3,10 @@
 `aurora_vtk_visualizer` is a standalone 3D visualizer. It builds a reproducible
 illustrative source of 5–25 keV electrons at 450 km altitude, propagates them
 with the project's dipole field and Boris integrator, and displays their
-calculated trajectories and actual event locations at the 150 km atmospheric
-boundary. With `--aurora`, the source is concentrated in a polar arc and the
+calculated trajectories and event locations. The default source covers the
+entire downward pitch-angle hemisphere (0–90°), uniformly in cos(pitch), so
+some electrons enter the 150 km atmosphere and others mirror above it.
+With `--aurora`, the source is concentrated in a polar arc and the
 precipitating electrons also drive the atmospheric collision/secondary
 cascade, excitation grid, stationary-state kinetics, spectral emission grid,
 camera images, and VTK glow. The source is a chosen scenario, not an observed
@@ -12,9 +14,12 @@ event.
 
 The scene contains Earth, a translucent atmosphere boundary, magnetic field
 lines numerically traced along the dipole, color-coded electron trajectories,
-cyan injection points, orange precipitation points, and an energy scale in
-keV. In aurora mode it also shows separate green 557.7 nm and red 630.0 nm
-volumes from the calculated photon-emission grid. VTK coordinates are Earth
+cyan injection points, orange precipitation points, and magenta mirror points.
+Gold trajectories precipitate, magenta trajectories mirror, pale-blue
+trajectories escape, and gray trajectories remain unresolved. Electron energy
+is saved in the particle CSV rather than encoded by trajectory color. In aurora
+mode the scene also shows separate green 557.7 nm and red 630.0 nm volumes
+from the calculated photon-emission grid. VTK coordinates are Earth
 radii; input positions stay in metres. Line widths and marker sizes are
 enlarged for readability and are not physical particle sizes.
 
@@ -51,6 +56,18 @@ precipitating source rate. This speeds up rendering a dense flow but increases
 the statistical noise of the emission estimate. `--threads` parallelizes
 independent orbit and atmospheric runs. Marker-specific random seeds and
 ordered merging make outputs independent of thread scheduling.
+Use `--pitch-min-deg` and `--pitch-max-deg` to limit the injected downward
+pitch angles; their defaults are 0 and 90 degrees. The source is an illustrative
+direction distribution, not a measured flux. A wide-angle run keeps the
+original total source rate but only the precipitating fraction reaches the
+atmospheric cascade. The orbit calculation stops at the first mirror point:
+magenta paths do not yet show the return flight.
+
+During a run, progress is printed to stderr for electron trajectories and,
+with `--aurora`, atmospheric cascades. Each stage starts at 0%, reports
+approximately every 5%, and ends at 100%. Cascade progress counts the
+selected primaries, not all rendered trajectories when `--cascade-markers`
+subsamples them.
 
 Aurora mode writes:
 
@@ -61,6 +78,13 @@ Aurora mode writes:
   `photons m^-2 s^-1 sr^-1`, plus a display-only RGB `aurora_preview.ppm`;
 - `<stem>_manifest.txt`: seed, marker counts, input locations, source rate,
   neglected-excitation diagnostic, and energy-balance residual.
+
+Every run, including one without `--aurora`, writes `<stem>_particles.csv` with
+each marker's initial position, momentum, energy, pitch and gyro phase,
+terminal outcome, event time and position, and physical rate weight. These
+initial conditions can be reused for paired field-comparison experiments.
+If no marker precipitates, aurora mode skips the emission calculation and
+saves only the trajectory scene and particle CSV.
 
 The VTK volume uses a photon-conserving spatial blur **only for display** and
 compresses the red/green peak contrast for visibility. Thus its color/opacity is not
@@ -79,5 +103,5 @@ provide its own recorded tracks and field lines instead of the demo source.
 `SimulationEngine::run(initial, observer)` reports the initial state, each
 accepted step and the *located* terminal state. `ElectronSceneSampler`
 subsamples these points for display while always retaining the terminal
-point. The scene is interactive but not time-animated; the path colors encode
-electron energy, while the glow comes from the calculated emission grid.
+point. The scene is interactive but not time-animated; path colors encode
+the terminal outcome, while the glow comes from the calculated emission grid.
