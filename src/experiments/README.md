@@ -1,21 +1,22 @@
-# Первые эксперименты с траекториями
+# Физические эксперименты и отчёты
 
-Это реализация пакета A и первых опытов пакета B из
+Это реализация пакета A, первых опытов пакета B и статистического опыта C из
 [`aurora_experiments_plan_ru.md`](../../aurora_experiments_plan_ru.md). VTK и атмосферные
 таблицы не требуются.
 
 ```sh
 cmake -S . -B build -DAURORA_BUILD_VTK_VISUALIZER=OFF
-cmake --build build --target aurora_trajectory_experiments aurora_loss_cone_experiment
+cmake --build build --target aurora_trajectory_experiments aurora_loss_cone_experiment aurora_precipitation_experiment
 ./build/aurora_trajectory_experiments experiments/results
 ./build/aurora_loss_cone_experiment experiments/results
+./build/aurora_precipitation_experiment experiments/results --threads 8
 python3 src/experiments/make_reports.py experiments/results
-ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment' --output-on-failure
+ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment|precipitation_statistics' --output-on-failure
 ```
 
 Скрипту отчётов нужен `matplotlib` (`python3 -m pip install matplotlib`, если его
 нет). Программы создают каталог, если его нет, и перезаписывают в нём только
-свои шесть CSV-файлов:
+свои десять CSV-файлов:
 
 | Файл | Содержание |
 | --- | --- |
@@ -25,6 +26,10 @@ ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment' --output
 | `mirror_summary.csv` | Исход одной частицы при локальном угле 80° с высоты 450 км; поле на старте и при отражении, адиабатическое предсказание, ошибка энергии и число шагов. |
 | `mirror_trace.csv` | Разреженная трасса той же частицы плюс точное состояние события. |
 | `loss_cone.csv` | Шесть сканирований: три линии `L` при границе 150 км, повтор центральной линии с вдвое меньшим шагом, границы 100 и 200 км. Численный угол дан серединой скобки `Precipitated`–`Mirrored`; теория — `asin(sqrt(B_start/B_boundary))`. |
+| `precipitation_bins.csv` | Для трёх `L` по пять угловых бинов около теоретического `αc`, 16 маркеров в бине; четыре исхода и 95%-й интервал Уилсона. |
+| `source_distributions.csv` | Два seed и два закона начальных направлений, по 128 маркеров на запуск; модельная доля высыпания и аналитический идеальный конус. |
+| `source_convergence.csv` | Вложенные префиксы `N=32/64/128` тех же запусков для проверки разброса. |
+| `precipitation_particles.csv` | Полное начальное состояние, угол, гирофаза, единичный вес выборки и исход каждого маркера; позволяет проверить агрегаты и позднее повторить те же состояния в другом поле. Единичный вес не задаёт физический поток электронов. |
 
 Все расстояния — метры, времена — секунды, поле — теслы, энергия — эВ,
 `p_parallel` — кг·м/с, `mu` — Дж/Тл. Знак `p_parallel` относится к направлению
@@ -34,12 +39,14 @@ ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment' --output
 времени события — разные величины; они показаны разными столбцами.
 
 Готовые результаты сохраняются **в проекте**, в [`experiments/results/reports/`](../../experiments/results/reports/README.md):
-четыре отдельных `.md`-отчёта, шесть PNG-графиков и исходные CSV рядом. Отчёты
+пять отдельных `.md`-отчётов, девять PNG-графиков и исходные CSV рядом. Отчёты
 разделены на проверку интегратора, локализацию события, магнитное зеркало и
-конус потерь. Генератор пересчитывает тексты и рисунки из CSV, поэтому числа
+конус потерь, статистику высыпания. Генератор пересчитывает тексты и рисунки из CSV, поэтому числа
 не приходится обновлять вручную. Смена шага проверена на уровне точности
 сканирования 0,05°; это не оценка всех возможных физических ошибок модели.
 `Unresolved` при поиске границы вызывает ошибку, а не засчитывается как
 высыпание или отражение.
 
-Статистика ансамбля и сравнение с магнитной аномалией — следующие этапы плана.
+Статистический опыт пока выполнен при одной энергии 10 кэВ и в статическом
+диполе. Следующий отдельный опыт — сравнение с магнитной аномалией; зависимости
+от энергии, электрического ускорения и реалистичного источника здесь ещё нет.

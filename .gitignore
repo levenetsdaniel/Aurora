@@ -1,0 +1,4 @@
+*.csv
+*.png
+!experiments/results/*.csv
+!experiments/results/reports/*.png

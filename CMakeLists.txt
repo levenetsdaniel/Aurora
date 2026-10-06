@@ -7,6 +7,7 @@ add_executable(Aurora main.cpp src/math/Vector3.hpp src/physics/MagneticField.hp
 
 add_executable(aurora_trajectory_experiments src/experiments/trajectory_experiments.cpp)
 add_executable(aurora_loss_cone_experiment src/experiments/loss_cone_experiment.cpp)
+add_executable(aurora_precipitation_experiment src/experiments/precipitation_experiment.cpp)
 
 enable_testing()
 add_executable(aurora_boris_test tests/boris_integrator_test.cpp)
@@ -15,6 +16,8 @@ add_executable(aurora_trajectory_experiments_test tests/trajectory_experiments_t
 add_test(NAME trajectory_experiments COMMAND aurora_trajectory_experiments_test)
 add_executable(aurora_loss_cone_experiment_test tests/loss_cone_experiment_test.cpp)
 add_test(NAME loss_cone_experiment COMMAND aurora_loss_cone_experiment_test)
+add_executable(aurora_precipitation_statistics_test tests/precipitation_statistics_test.cpp)
+add_test(NAME precipitation_statistics COMMAND aurora_precipitation_statistics_test)
 add_executable(aurora_diagnostics_test tests/diagnostics_test.cpp)
 add_test(NAME diagnostics COMMAND aurora_diagnostics_test)
 add_executable(aurora_simulation_engine_test tests/simulation_engine_test.cpp)
@@ -61,6 +64,8 @@ add_executable(aurora_electron_scene_data_test tests/electron_scene_data_test.cp
 add_test(NAME electron_scene_data COMMAND aurora_electron_scene_data_test)
 add_executable(aurora_pipeline_test tests/aurora_pipeline_test.cpp)
 find_package(Threads REQUIRED)
+target_link_libraries(aurora_precipitation_experiment PRIVATE Threads::Threads)
+target_link_libraries(aurora_precipitation_statistics_test PRIVATE Threads::Threads)
 target_link_libraries(aurora_pipeline_test PRIVATE Threads::Threads)
 add_test(NAME aurora_pipeline COMMAND aurora_pipeline_test)
 

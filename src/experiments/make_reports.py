@@ -6,6 +6,7 @@ import csv
 import math
 import os
 from pathlib import Path
+import random
 import sys
 import tempfile
 
@@ -29,6 +30,16 @@ def write_report(directory, filename, content):
 def save_plot(figure, directory, filename, plt):
     figure.savefig(directory / filename, dpi=170, bbox_inches="tight")
     plt.close(figure)
+
+
+def wilson(successes, trials):
+    z = 1.959963984540054
+    fraction = successes / trials
+    denominator = 1 + z * z / trials
+    center = (fraction + z * z / (2 * trials)) / denominator
+    half = z / denominator * math.sqrt(
+        fraction * (1 - fraction) / trials + z * z / (4 * trials * trials))
+    return max(0.0, center - half), min(1.0, center + half)
 
 
 def main():
@@ -61,6 +72,10 @@ def main():
     mirror = rows(directory, "mirror_trace.csv")
     mirror_summary = rows(directory, "mirror_summary.csv")[0]
     loss_cone = rows(directory, "loss_cone.csv")
+    precipitation_bins = rows(directory, "precipitation_bins.csv")
+    source_distributions = rows(directory, "source_distributions.csv")
+    source_convergence = rows(directory, "source_convergence.csv")
+    precipitation_particles = rows(directory, "precipitation_particles.csv")
 
     # 01: Relativistic Boris motion in a uniform field and energy conservation.
     dt = [value(row, "dt_s") for row in orbit]
@@ -343,6 +358,176 @@ def main():
 [Как воспроизвести](../../../src/experiments/README.md).
 """)
 
+    # 05: Angular-bin probabilities and two different source hypotheses.
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    for L, color in ((7.06, "#286aa1"), (10.82, "#a65320"),
+                     (17.49, "#588540")):
+        selected = sorted((row for row in precipitation_bins
+                           if abs(value(row, "L") - L) < 0.03),
+                          key=lambda row: value(row, "pitch_center_deg"))
+        x = [value(row, "pitch_center_deg") -
+             value(row, "theory_critical_deg") for row in selected]
+        y = [value(row, "P_precip") for row in selected]
+        ax.errorbar(x, y,
+                    yerr=[[center - value(row, "wilson_low_95")
+                           for center, row in zip(y, selected)],
+                          [value(row, "wilson_high_95") - center
+                           for center, row in zip(y, selected)]],
+                    fmt="o-", capsize=3, color=color, label=f"L ≈ {L:.2f}")
+    ax.axvline(0, color="black", linestyle="--", linewidth=1,
+               label="Адиабатическая граница")
+    ax.set(xlabel="Центр бина − теоретический αc, градусы",
+           ylabel="Доля высыпавшихся", ylim=(-0.05, 1.06),
+           title="Вероятность высыпания около конуса потерь")
+    ax.legend(loc="center right")
+    fig.tight_layout()
+    save_plot(fig, reports, "05_probability_by_pitch.png", plt)
+
+    distributions = ("uniform_angle", "isotropic_hemisphere")
+    labels = ("Равномерный угол", "Изотропные направления")
+    pooled = {}
+    for distribution in distributions:
+        selected = [row for row in source_distributions
+                    if row["distribution"] == distribution]
+        n = sum(int(row["N"]) for row in selected)
+        k = sum(int(row["precipitated"]) for row in selected)
+        mirrored = sum(int(row["mirrored"]) for row in selected)
+        other = sum(int(row["escaped"]) + int(row["unresolved"])
+                    for row in selected)
+        pooled[distribution] = (n, k, mirrored, other, *wilson(k, n),
+                                value(selected[0], "theory_fraction"))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    x = [0, 1]
+    fractions = [pooled[name][1] / pooled[name][0] for name in distributions]
+    ax.errorbar(x, fractions,
+                yerr=[[fractions[i] - pooled[name][4]
+                       for i, name in enumerate(distributions)],
+                      [pooled[name][5] - fractions[i]
+                       for i, name in enumerate(distributions)]],
+                fmt="o", markersize=9, capsize=5, color="#2467a2",
+                label="Расчёт, 95% интервал Уилсона")
+    ax.scatter(x, [pooled[name][6] for name in distributions], marker="D",
+               color="#a65320", label="Идеальный конус потерь")
+    ax.set(xticks=x, xticklabels=labels, ylabel="Доля высыпавшихся",
+           ylim=(0.5, 0.9), title="Одна магнитная линия, два допущения об источнике")
+    ax.legend()
+    fig.tight_layout()
+    save_plot(fig, reports, "05_source_comparison.png", plt)
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    for distribution, color in (("uniform_angle", "#2467a2"),
+                                ("isotropic_hemisphere", "#a65320")):
+        short_label = "равн. α" if distribution == "uniform_angle" else "равн. cos α"
+        for seed, style in ((20261006, "o-"), (20261007, "s--")):
+            selected = sorted((row for row in source_convergence
+                               if row["distribution"] == distribution and
+                               int(row["seed"]) == seed),
+                              key=lambda row: int(row["prefix_N"]))
+            ax.plot([int(row["prefix_N"]) for row in selected],
+                    [value(row, "P_precip") for row in selected], style,
+                    color=color, label=f"{short_label}, seed {seed}")
+        ax.axhline(pooled[distribution][6], color=color, alpha=0.5,
+                   linestyle=":")
+    ax.set(xlabel="Число маркеров на seed", ylabel="Доля высыпавшихся",
+           xticks=[32, 64, 128], ylim=(0.5, 0.9),
+           title="Разброс при изменении seed и размера ансамбля")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    save_plot(fig, reports, "05_source_convergence.png", plt)
+
+    paired = {}
+    for row in precipitation_particles:
+        if (row["group"].startswith("uniform_angle_") or
+                row["group"].startswith("isotropic_hemisphere_")):
+            paired[(row["group"], int(row["id"]))] = (
+                row["outcome"] == "Precipitated", value(row, "phase_deg"))
+    differences = []
+    for seed_index in (0, 1):
+        for marker_id in range(1, 129):
+            uniform = paired[(f"uniform_angle_{seed_index}", marker_id)]
+            isotropic = paired[(f"isotropic_hemisphere_{seed_index}", marker_id)]
+            if uniform[1] != isotropic[1]:
+                raise ValueError("Source comparison lost its paired gyro phases")
+            differences.append(int(uniform[0]) - int(isotropic[0]))
+    random_generator = random.Random(20261006)
+    bootstrap = sorted(
+        sum(random_generator.choice(differences) for _ in differences) /
+        len(differences) for _ in range(5000))
+    difference = sum(differences) / len(differences)
+    difference_low = bootstrap[125]
+    difference_high = bootstrap[4875]
+    source_table = "\n".join(
+        f"| {label} | {pooled[name][1]}/{pooled[name][0]} | "
+        f"{pooled[name][1] / pooled[name][0]:.3f} | "
+        f"{pooled[name][4]:.3f}–{pooled[name][5]:.3f} | "
+        f"{pooled[name][6]:.3f} |"
+        for name, label in zip(distributions, labels))
+    unresolved_total = sum(int(row["unresolved"]) for row in precipitation_bins +
+                           source_distributions)
+    write_report(reports, "05_precipitation_statistics.md", f"""
+# Эксперимент 5. Статистика высыпания электронов
+
+## Физический вопрос
+
+Как меняется доля электронов, достигающих условной атмосферы, около границы
+конуса потерь и при замене распределения начальных направлений?
+
+## Постановка
+
+В статическом диполе с высоты 450 км запускаются электроны 10 кэВ. Для трёх
+линий `L` около теоретического угла `αc` заданы пять бинов шириной **0,1°**;
+в каждом по **16** случайных углов внутри бина и гирофаз. Отдельно на линии
+`L ≈ 10,82` два независимых seed дают по **128** маркеров для каждого источника:
+равномерного по `α ∈ [0°,90°]` и равномерного по `cos α ∈ [0,1]`
+(изотропного по направлениям на нисходящей полусфере). Шаг — около `T/50`.
+Для всех исходов отдельно считаются `Precipitated`, `Mirrored`, `Escaped`,
+`Unresolved`; здесь суммарно `Unresolved = {unresolved_total}`.
+
+![Вероятность в угловых бинах](05_probability_by_pitch.png)
+
+Смешанные доли в центральных бинах появляются потому, что **сам бин имеет
+конечную ширину** и в нём выбираются разные начальные углы. Траектория при
+заданном начальном состоянии детерминирована. Усики — 95%-е интервалы
+Уилсона для доли внутри выбранного бина, не погрешность положения `αc`.
+
+![Сравнение двух источников](05_source_comparison.png)
+
+| Начальные направления | Дошли / всего | Доля | 95% интервал Уилсона | Идеальный конус |
+| --- | ---: | ---: | ---: | ---: |
+{source_table}
+
+Для идеальной резкой границы ожидаются разные доли:
+`P(равномерный угол) = αc/90°`, `P(изотропный) = 1 − cos αc`.
+Фактическая разность при **попарном сопоставлении одинаковых случайных квантилей** —
+**{difference:.3f}**, парный 95%-й bootstrap-интервал
+**[{difference_low:.3f}; {difference_high:.3f}]** (5000 повторов).
+Общее число маркеров в каждом широком источнике — 256.
+
+![Разброс seed и N](05_source_convergence.png)
+
+Значения при `N=32/64/128` — вложенные префиксы одного прогона, а не три
+независимых опыта. Два seed позволяют увидеть разброс между реализациями;
+пунктирные горизонтали — оценки идеального конуса потерь.
+
+## Вывод и ограничения
+
+В этой модели вероятность резко меняется около теоретического конуса потерь.
+Распределение начальных направлений заметно меняет **интегральную** долю
+высыпавшихся даже при неизменном магнитном поле. Это сравнение двух
+**заданных гипотез об источнике**, не измерение реального электронного потока.
+Малый размер бина (`N=16`) даёт широкие интервалы; в модели нет электрического
+ускорения, рассеяния по углам до 150 км и реального геомагнитного поля.
+
+Исходные данные: [угловые бины](../precipitation_bins.csv),
+[источники](../source_distributions.csv),
+[сходимость](../source_convergence.csv),
+[все частицы](../precipitation_particles.csv).
+В последнем файле сохранены полные начальные координаты и импульсы; единичный
+вес маркера здесь не является измеренным физическим потоком.
+Код: `src/experiments/PrecipitationStatistics.hpp`.
+[Как воспроизвести](../../../src/experiments/README.md).
+""")
+
     write_report(reports, "README.md", """
 # Отчёты по физическим экспериментам
 
@@ -353,11 +538,12 @@ def main():
 2. [Локализация входа в атмосферу](02_event_location.md)
 3. [Магнитное зеркало](03_magnetic_mirror.md)
 4. [Граница конуса потерь](04_loss_cone.md)
+5. [Статистика высыпания](05_precipitation_statistics.md)
 
 Все рисунки лежат рядом с отчётами. Исходные CSV — в родительском каталоге.
 Графики и отчёты можно [пересоздать по инструкции](../../../src/experiments/README.md).
 """)
-    print(f"Wrote four Markdown reports and six figures to {reports}")
+    print(f"Wrote five Markdown reports and nine figures to {reports}")
 
 
 if __name__ == "__main__":
