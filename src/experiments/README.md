@@ -1,22 +1,24 @@
 # Физические эксперименты и отчёты
 
-Это реализация пакета A, первых опытов пакета B и статистического опыта C из
+Это реализация пакета A, первых опытов пакета B, статистического опыта C и
+первых опытов пакета D из
 [`aurora_experiments_plan_ru.md`](../../aurora_experiments_plan_ru.md). VTK и атмосферные
 таблицы не требуются.
 
 ```sh
 cmake -S . -B build -DAURORA_BUILD_VTK_VISUALIZER=OFF
-cmake --build build --target aurora_trajectory_experiments aurora_loss_cone_experiment aurora_precipitation_experiment
+cmake --build build --target aurora_trajectory_experiments aurora_loss_cone_experiment aurora_precipitation_experiment aurora_anomaly_experiment
 ./build/aurora_trajectory_experiments experiments/results
 ./build/aurora_loss_cone_experiment experiments/results
 ./build/aurora_precipitation_experiment experiments/results --threads 8
+./build/aurora_anomaly_experiment experiments/results --threads 8
 python3 src/experiments/make_reports.py experiments/results
-ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment|precipitation_statistics' --output-on-failure
+ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment|precipitation_statistics|localized_dipole' --output-on-failure
 ```
 
 Скрипту отчётов нужен `matplotlib` (`python3 -m pip install matplotlib`, если его
 нет). Программы создают каталог, если его нет, и перезаписывают в нём только
-свои десять CSV-файлов:
+свои четырнадцать CSV-файлов:
 
 | Файл | Содержание |
 | --- | --- |
@@ -30,6 +32,10 @@ ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment|precipita
 | `source_distributions.csv` | Два seed и два закона начальных направлений, по 128 маркеров на запуск; модельная доля высыпания и аналитический идеальный конус. |
 | `source_convergence.csv` | Вложенные префиксы `N=32/64/128` тех же запусков для проверки разброса. |
 | `precipitation_particles.csv` | Полное начальное состояние, угол, гирофаза, единичный вес выборки и исход каждого маркера; позволяет проверить агрегаты и позднее повторить те же состояния в другом поле. Единичный вес не задаёт физический поток электронов. |
+| `anomaly_field.csv` | Отношение поля подповерхностного диполя к фоновому на 0, 150 и 450 км для двух пространственных масштабов. |
+| `anomaly_scan.csv` | Численная граница конуса потерь при фиксированном начальном базовом направлении. |
+| `anomaly_summary.csv` | Парные переходы исходов, счётчики четырёх категорий, среднее смещение точек входа. |
+| `anomaly_particles.csv` | Одни и те же начальные координаты и импульсы, исходы и точки события во всех сравниваемых полях. |
 
 Все расстояния — метры, времена — секунды, поле — теслы, энергия — эВ,
 `p_parallel` — кг·м/с, `mu` — Дж/Тл. Знак `p_parallel` относится к направлению
@@ -39,14 +45,18 @@ ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment|precipita
 времени события — разные величины; они показаны разными столбцами.
 
 Готовые результаты сохраняются **в проекте**, в [`experiments/results/reports/`](../../experiments/results/reports/README.md):
-пять отдельных `.md`-отчётов, девять PNG-графиков и исходные CSV рядом. Отчёты
+семь отдельных `.md`-отчётов, тринадцать PNG-графиков и исходные CSV рядом. Отчёты
 разделены на проверку интегратора, локализацию события, магнитное зеркало и
-конус потерь, статистику высыпания. Генератор пересчитывает тексты и рисунки из CSV, поэтому числа
+конус потерь, статистику высыпания, поле аномалии и парную проверку её влияния.
+Генератор пересчитывает тексты и рисунки из CSV, поэтому числа
 не приходится обновлять вручную. Смена шага проверена на уровне точности
 сканирования 0,05°; это не оценка всех возможных физических ошибок модели.
 `Unresolved` при поиске границы вызывает ошибку, а не засчитывается как
 высыпание или отражение.
 
-Статистический опыт пока выполнен при одной энергии 10 кэВ и в статическом
-диполе. Следующий отдельный опыт — сравнение с магнитной аномалией; зависимости
-от энергии, электрического ускорения и реалистичного источника здесь ещё нет.
+Статистические опыты выполнены при одной энергии 10 кэВ и в статическом
+диполе либо диполе с локальной подповерхностной аномалией. Начальные
+состояния в парном опыте не меняются между полями. Слабый вариант имеет 1%
+поверхностного поля, усиленные учебные — 30%; они не обозначают типичную
+геомагнитную обстановку. Зависимости от энергии, электрического ускорения и
+реалистичного источника здесь ещё нет.

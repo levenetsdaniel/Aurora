@@ -76,6 +76,10 @@ def main():
     source_distributions = rows(directory, "source_distributions.csv")
     source_convergence = rows(directory, "source_convergence.csv")
     precipitation_particles = rows(directory, "precipitation_particles.csv")
+    anomaly_field = rows(directory, "anomaly_field.csv")
+    anomaly_scan = rows(directory, "anomaly_scan.csv")
+    anomaly_summary = rows(directory, "anomaly_summary.csv")
+    anomaly_particles = rows(directory, "anomaly_particles.csv")
 
     # 01: Relativistic Boris motion in a uniform field and energy conservation.
     dt = [value(row, "dt_s") for row in orbit]
@@ -528,6 +532,238 @@ def main():
 [Как воспроизвести](../../../src/experiments/README.md).
 """)
 
+    # 06: Spatial shape and attenuation of a divergence-free buried dipole.
+    anomaly_cases = ("weak_broad", "strong_broad", "strong_compact")
+    case_labels = {"zero": "Нулевая", "weak_broad": "Слабая, 500 км",
+                   "strong_broad": "Усиленная, 500 км",
+                   "strong_compact": "Усиленная, 250 км"}
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.8), sharey=True)
+    for axis, altitude in zip(axes, (0, 150000, 450000)):
+        for name in anomaly_cases:
+            selected = sorted((row for row in anomaly_field
+                               if row["case"] == name and
+                               value(row, "altitude_m") == altitude),
+                              key=lambda row: value(row, "offset_deg"))
+            axis.plot([value(row, "offset_deg") for row in selected],
+                      [100 * value(row, "relative_anomaly") for row in selected],
+                      label=case_labels[name])
+        axis.set(xlabel="Смещение от источника, градусы",
+                 title=f"Высота {altitude / 1000:.0f} км")
+    axes[0].set_ylabel("|δB| / |B₀|, %")
+    axes[-1].legend(fontsize=8)
+    fig.suptitle("Пространственный масштаб и затухание аномалии")
+    fig.tight_layout()
+    save_plot(fig, reports, "06_anomaly_field.png", plt)
+    field_table = "\n".join(
+        f"| {case_labels[name]} | {value(next(row for row in anomaly_field if row['case'] == name), 'depth_m') / 1000:.0f} | "
+        + " | ".join(
+            f"{100 * value(next(row for row in anomaly_field
+                                 if row['case'] == name and
+                                 value(row, 'altitude_m') == altitude and
+                                 value(row, 'offset_deg') == 0), 'relative_anomaly'):.3f}%"
+            for altitude in (0, 150000, 450000)) + " |"
+        for name in anomaly_cases)
+    write_report(reports, "06_anomaly_field.md", f"""
+# Эксперимент 6. Локальная магнитная аномалия
+
+## Физический вопрос
+
+Как изменяется вклад подповерхностного источника в поле на поверхности и на
+высотах, где стартуют и заканчиваются электронные траектории?
+
+## Постановка и метод
+
+К земному диполю добавлен отдельный диполь на глубине 500 или 250 км под
+точкой с колатитудой 18,335°. Его момент направлен радиально, сила задаётся
+отношением **осевого поля аномалии на поверхности** к полю основного диполя
+там же. Слабый вариант: 1%; усиленные учебные варианты: 30%. Это модельные
+параметры, а не утверждение о типичной земной коровой аномалии.
+
+Вне подземного источника оба слагаемых имеют `∇·B=0`; конечными разностями
+это отдельно проверено автоматическим тестом. Нулевая амплитуда в том же тесте
+даёт ровно исходный диполь.
+
+![Поле аномалии на трёх высотах](06_anomaly_field.png)
+
+| Случай | Глубина, км | δB/B₀, 0 км | δB/B₀, 150 км | δB/B₀, 450 км |
+| --- | ---: | ---: | ---: | ---: |
+{field_table}
+
+## Вывод и ограничения
+
+Подповерхностный диполь быстро ослабевает с высотой. Сравнивать силу аномалии
+только на поверхности недостаточно: электроны стартуют на 450 км, а исход
+`Precipitated` регистрируется при достижении 150 км. Усиленный случай нужен
+для проверки чувствительности метода; он не является реалистичным прогнозом.
+Показан срез поля в одной меридиональной плоскости, не глобальная карта Земли.
+
+Исходные данные: [пространственная карта](../anomaly_field.csv).
+Код: `src/physics/LocalizedDipoleField.hpp`.
+[Как воспроизвести](../../../src/experiments/README.md).
+""")
+
+    # 07: Paired trajectories with identical initial phase-space points.
+    names = ("zero",) + anomaly_cases
+    paired = {}
+    for name in names:
+        selected = [row for row in anomaly_particles if row["case"] == name]
+        differences = []
+        transitions = [0, 0, 0]
+        base_count = 0
+        changed_count = 0
+        for row in selected:
+            base = row["baseline_outcome"]
+            changed = row["anomaly_outcome"]
+            base_count += base == "Precipitated"
+            changed_count += changed == "Precipitated"
+            differences.append(int(changed == "Precipitated") -
+                               int(base == "Precipitated"))
+            if base == "Precipitated" and changed == "Mirrored":
+                transitions[0] += 1
+            elif base == "Mirrored" and changed == "Precipitated":
+                transitions[1] += 1
+            elif base != changed:
+                transitions[2] += 1
+        random_generator = random.Random(20261007)
+        bootstrap = sorted(
+            sum(random_generator.choice(differences) for _ in differences) /
+            len(differences) for _ in range(3000))
+        paired[name] = {
+            "N": len(selected), "base": base_count, "changed": changed_count,
+            "delta": sum(differences) / len(differences),
+            "low": bootstrap[75], "high": bootstrap[2925],
+            "transitions": transitions,
+            "wilson": wilson(changed_count, len(selected)),
+        }
+    scan_by_name = {row["case"]: row for row in anomaly_scan}
+    labels = [case_labels[name] for name in names]
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    x = list(range(len(names)))
+    y = [100 * paired[name]["delta"] for name in names]
+    axes[0].errorbar(x, y,
+                     yerr=[[y[i] - 100 * paired[name]["low"]
+                            for i, name in enumerate(names)],
+                           [100 * paired[name]["high"] - y[i]
+                            for i, name in enumerate(names)]],
+                     fmt="o", capsize=4, color="#2467a2")
+    axes[0].axhline(0, color="black", linewidth=1)
+    axes[0].set(ylabel="ΔP осаждения, процентные пункты",
+                title="Парная разность, 95% bootstrap")
+    axes[1].plot(x, [value(scan_by_name[name], "delta_midpoint_deg")
+                     for name in names], "o-", color="#a65320")
+    axes[1].axhline(0, color="black", linewidth=1)
+    axes[1].set(ylabel="Сдвиг критического угла, градусы",
+                title="Одна стартовая гирофаза")
+    for axis in axes:
+        axis.set_xticks(x, labels, rotation=20, ha="right")
+    fig.tight_layout()
+    save_plot(fig, reports, "07_paired_anomaly.png", plt)
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(x, [paired[name]["transitions"][0] for name in names],
+           label="Достиг → отразился", color="#a65320")
+    ax.bar(x, [paired[name]["transitions"][1] for name in names],
+           bottom=[paired[name]["transitions"][0] for name in names],
+           label="Отразился → достиг", color="#2467a2")
+    ax.set(xticks=x, xticklabels=labels, ylabel="Число частиц",
+           title="Смена исхода у тех же начальных состояний")
+    ax.tick_params(axis="x", labelrotation=20)
+    ax.legend()
+    fig.tight_layout()
+    save_plot(fig, reports, "07_transitions.png", plt)
+    selected_entries = [row for row in anomaly_particles
+                        if row["case"] == "weak_broad" and
+                        row["baseline_outcome"] == "Precipitated" and
+                        row["anomaly_outcome"] == "Precipitated"]
+    if not selected_entries:
+        raise ValueError("No paired atmosphere entries for the anomaly comparison")
+    weak_mean_entry_shift_m = sum(value(row, "entry_shift_m") for row in selected_entries) / len(selected_entries)
+    origin_x = sum(value(row, "baseline_event_x_m") for row in selected_entries) / len(selected_entries)
+    origin_y = sum(value(row, "baseline_event_y_m") for row in selected_entries) / len(selected_entries)
+    fig, ax = plt.subplots(figsize=(6, 5))
+    for prefix, label, color in (("baseline", "Без аномалии", "#2467a2"),
+                                 ("anomaly", "С аномалией", "#a65320")):
+        ax.scatter([(value(row, f"{prefix}_event_x_m") - origin_x) / 1000
+                    for row in selected_entries],
+                   [(value(row, f"{prefix}_event_y_m") - origin_y) / 1000
+                    for row in selected_entries],
+                   s=12, alpha=0.55, label=label, color=color)
+    ax.set(xlabel="x − среднее x₀, км", ylabel="y − среднее y₀, км",
+           title="Слабая аномалия: точки входа на 150 км")
+    ax.legend()
+    fig.tight_layout()
+    save_plot(fig, reports, "07_entry_points.png", plt)
+    comparison_table = "\n".join(
+        f"| {case_labels[name]} | {paired[name]['changed']}/{paired[name]['N']} | "
+        f"{paired[name]['wilson'][0]:.3f}–{paired[name]['wilson'][1]:.3f} | "
+        f"{100 * paired[name]['delta']:+.2f} | "
+        f"[{100 * paired[name]['low']:+.2f}; {100 * paired[name]['high']:+.2f}] | "
+        f"{paired[name]['transitions'][0]} / {paired[name]['transitions'][1]} | "
+        f"{value(scan_by_name[name], 'delta_midpoint_deg'):+.3f} |"
+        for name in names)
+    baseline_total = paired["zero"]["base"]
+    scan_sensitivity = max(abs(value(row, "delta_midpoint_deg") -
+                               value(row, "delta_midpoint_fine_deg"))
+                           for row in anomaly_scan)
+    write_report(reports, "07_paired_anomaly.md", f"""
+# Эксперимент 7. Влияние аномалии на высыпание электронов
+
+## Физический вопрос
+
+Меняет ли локальный подповерхностный диполь границу конуса потерь и исходы
+**одних и тех же** электронов?
+
+## Постановка и метод
+
+Из точки на высоте 450 км стартуют электроны 10 кэВ, угол к **базовому** полю
+равномерно выбран в бине шириной 1,2° вокруг базовой критической границы.
+Два seed по 128 частиц дают N=256. Начальные `(r,p,t,id,weight)` генерируются
+один раз и дословно повторяются в четырёх полях; бин специально сосредоточен
+вблизи порога и **не представляет всю изотропную полусферу**. Шаг `T/50`,
+граница атмосферы 150 км. Доверительный интервал разности — парный bootstrap
+3000 повторов; интервалы отдельной доли — Уилсон.
+
+![Парная разность и сдвиг границы](07_paired_anomaly.png)
+
+В базовом поле достигли границы **{baseline_total}/256** электронов.
+
+| Поле | Достигли, k/N | 95% Уилсон | ΔP, п.п. | 95% парный bootstrap, п.п. | Достиг→отразился / обратно | Δαc, ° |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+{comparison_table}
+
+![Переходы исходов](07_transitions.png)
+
+![Сопоставимые точки входа при слабой аномалии](07_entry_points.png)
+
+Среднее смещение точек входа рассчитано **только для частиц, достигших
+150 км в обоих полях**; для слабой аномалии это **{weak_mean_entry_shift_m:.1f} м**.
+В усиленных вариантах таких частиц
+в выбранном узком бине нет, поэтому ноль в колонке смещения CSV означает
+«не определено», а не отсутствие отклонения. `Escaped` и `Unresolved` не
+приравниваются к отражению или высыпанию. Угловая граница найдена бинарным
+поиском для фиксированной базовой гирофазы и того же начального направления;
+точность скобки 0,05°, а не точная физическая константа.
+При уменьшении шага с `T/50` до `T/100` сдвиг критического угла меняется
+не более чем на **{scan_sensitivity:.3f}°** в этой серии. Это проверка
+сканирования, но не статистики всего ансамбля при втором шаге.
+
+## Вывод и ограничения
+
+Парное сравнение изолирует изменение магнитного поля от случайной перегенерации
+источника. Даже слабая **заданная** аномалия уменьшила долю высыпания в
+выбранном бине; парный интервал для этой разности не включает ноль.
+Усиленные аномалии — учебные сценарии: их одинаковый итог `0/256` обусловлен
+насыщением узкой выборки и **не означает**, что глубина не влияет на поле или
+конус потерь. Кроме статистики, остаются численные погрешности ансамбля и
+упрощение статического диполя. Доля относится только к выбранному узкому
+бину углов, не к реальному электронному потоку.
+
+Исходные данные: [все парные частицы](../anomaly_particles.csv),
+[агрегаты](../anomaly_summary.csv), [скан границы](../anomaly_scan.csv),
+[поле](../anomaly_field.csv). Код: `src/experiments/anomaly_experiment.cpp`.
+[Как воспроизвести](../../../src/experiments/README.md).
+""")
+
     write_report(reports, "README.md", """
 # Отчёты по физическим экспериментам
 
@@ -539,11 +775,13 @@ def main():
 3. [Магнитное зеркало](03_magnetic_mirror.md)
 4. [Граница конуса потерь](04_loss_cone.md)
 5. [Статистика высыпания](05_precipitation_statistics.md)
+6. [Локальная магнитная аномалия](06_anomaly_field.md)
+7. [Парное влияние аномалии на высыпание](07_paired_anomaly.md)
 
 Все рисунки лежат рядом с отчётами. Исходные CSV — в родительском каталоге.
 Графики и отчёты можно [пересоздать по инструкции](../../../src/experiments/README.md).
 """)
-    print(f"Wrote five Markdown reports and nine figures to {reports}")
+    print(f"Wrote seven Markdown reports and thirteen figures to {reports}")
 
 
 if __name__ == "__main__":
