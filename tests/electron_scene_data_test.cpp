@@ -31,6 +31,9 @@ void checkSceneData() {
     require(path.id == 42 && path.energy_eV == 1000 && path.weight_s1 == 10 &&
             path.outcome == ParticleOutcome::Precipitated &&
             path.positions_m.size() > 2 &&
+            path.times_s.size() == path.positions_m.size() &&
+            path.times_s.front() == initial.state.time_s &&
+            path.times_s.back() == path.terminalState.time_s &&
             path.positions_m.front().x == initial.state.r.x &&
             std::abs(path.positions_m.back().norm() -
                      (C::earthRadius_m + 150000)) < 1e-3,

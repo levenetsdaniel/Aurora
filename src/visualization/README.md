@@ -36,6 +36,77 @@ zoom with the mouse. If VTK is unavailable, CMake disables only this optional
 target; the physics library and its tests still build. On macOS, offscreen
 PNG rendering may still require a GUI/OpenGL-capable user session.
 
+To see the flight as a GIF, install Pillow (`python3 -m pip install Pillow`)
+and run the wrapper. The example below uses the same verified IAA archive
+required for a glowing scene:
+
+```sh
+python3 src/visualization/render_gif.py \
+  --gif build/aurora_flight.gif --frames 80 --fps 12 \
+  --markers 200 --cascade-markers 64 --threads 8 \
+  --seed 20260928 --aurora \
+  --iaa-root /absolute/path/to/extracted/archive
+```
+
+The command also saves `build/aurora_flight.png` as the final-frame preview
+and `<stem>_particles.csv`; a full `--aurora` run also writes the usual emission
+and manifest files. Without
+`--aurora`/`--iaa-root`, the GIF shows trajectories and outcomes but **no
+glow**, unless you explicitly replay a previously calculated emission grid.
+For example, if `build/aurora_3d_emission.csv` and its companion manifest are
+still present from an earlier run, the following avoids rerunning atmospheric
+cascades:
+
+```sh
+python3 src/visualization/render_gif.py \
+  --gif build/aurora_replay.gif --frames 80 --fps 12 \
+  --markers 1000 --seed 20260928 --source-rate 1e20 --threads 8 \
+  --emission-csv build/aurora_3d_emission.csv
+```
+
+Replay checks that the seed, marker count, source rate and pitch range match
+the companion manifest. It reuses the **final** emission grid and does not
+recompute the atmosphere. `--frames`, `--fps`, `--width` and `--height` set GIF quality and size;
+the default frame size is 960×600. The C++ visualizer can also write numbered
+PNG frames directly with `--frames-dir EMPTY_DIR --frames N`.
+
+For a **paired** baseline/anomaly GIF, use `--compare-anomaly`. This samples
+the electron source once in the baseline dipole and reuses exactly the same
+initial positions, momenta, IDs and weights in both fields. The two panels
+use the same simulation clock and camera. With `--aurora`, atmospheric cascades
+and emission are computed separately for both panels, with the same source-ID
+subsample and shared display brightness reference:
+
+```sh
+python3 src/visualization/render_gif.py \
+  --gif build/paired_anomaly.gif --frames 80 --fps 12 \
+  --markers 200 --cascade-markers 64 --threads 8 \
+  --seed 20260928 --aurora --iaa-root /absolute/path/to/extracted/archive \
+  --compare-anomaly --anomaly-surface-fraction 0.01 --anomaly-depth-km 500
+```
+
+The anomaly is a radially oriented dipole buried below colatitude 0.32 rad;
+`--anomaly-surface-fraction` is its axial field at the surface divided by the
+baseline field there. `0.01` is a weak model scenario; `0.30` is an intentionally
+amplified teaching scenario. `--cascade-markers` picks the **same source IDs**
+for atmospheric Monte Carlo in both fields and rescales their weights. The
+output includes `<stem>_comparison.csv`, separate particle and emission CSVs,
+separate spectral outputs, and a comparison manifest. `--emission-csv` is
+deliberately rejected in comparison mode: baseline glow cannot represent an
+anomalous-field atmospheric result. Without `--aurora`, the paired GIF still
+shows trajectories and outcomes, but neither panel has glow.
+
+Each frame uses recorded simulation times: moving points and growing trails
+show electrons from their initial state to their first mirror or 150 km entry.
+The final 15% of frames hold the completed scene. Electron sources currently
+all start at `t=0`; the simulation stops at the **first** mirror, so return
+flight is not shown. The color identifies the eventual outcome. The glow
+appears only after precipitation events, scaled by the cumulative arriving
+marker weight. This is a **display-only reveal of the final steady-state
+emission grid**, not a time-dependent atmospheric excitation or photon-lifetime
+calculation. The clock is simulation time, while GIF playback speed is chosen
+for viewing.
+
 For an aurora, first obtain the verified IAA archive described in
 `data/cross_sections/README.md`. Then run, for example:
 

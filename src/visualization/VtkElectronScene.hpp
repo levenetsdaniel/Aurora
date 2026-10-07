@@ -2,6 +2,7 @@
 #define AURORA_VTKELECTRONSCENE_HPP
 
 #include "ElectronSceneData.hpp"
+#include "ElectronAnimation.hpp"
 #include "../emission/VolumeEmissionGrid.hpp"
 
 #include <vtkActor.h>
@@ -34,6 +35,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <limits>
 #include <stdexcept>
@@ -45,6 +47,42 @@ class VtkElectronScene {
 private:
     vtkSmartPointer<vtkRenderer> renderer;
     vtkSmartPointer<vtkRenderWindow> window;
+    bool animated{};
+    std::array<vtkSmartPointer<vtkPolyData>, 4> animationTrails;
+    std::array<vtkSmartPointer<vtkPolyData>, 4> animationMarkers;
+    vtkSmartPointer<vtkTextActor> animationClock;
+    struct EmissionOpacity {
+        vtkSmartPointer<vtkPiecewiseFunction> function;
+        double maximum{};
+        double relativeOpacity{};
+    };
+    std::vector<EmissionOpacity> emissionOpacities;
+
+    static constexpr std::array<std::array<double, 3>, 4> pathColors{{
+        {{1.0, 0.78, 0.20}}, {{0.85, 0.36, 0.95}},
+        {{0.60, 0.80, 1.0}}, {{0.55, 0.58, 0.65}}
+    }};
+
+    static std::size_t pathCategory(ParticleOutcome outcome) {
+        switch (outcome) {
+            case ParticleOutcome::Precipitated: return 0;
+            case ParticleOutcome::Mirrored: return 1;
+            case ParticleOutcome::Escaped: return 2;
+            case ParticleOutcome::Unresolved: return 3;
+        }
+        throw std::invalid_argument("VtkElectronScene: invalid outcome");
+    }
+
+    static void setOpacity(EmissionOpacity& entry, double reveal) {
+        entry.function->RemoveAllPoints();
+        entry.function->AddPoint(0.0, 0.0);
+        entry.function->AddPoint(entry.maximum * 0.001, 0.0);
+        entry.function->AddPoint(entry.maximum * 0.05,
+                                 0.09 * entry.relativeOpacity * reveal);
+        entry.function->AddPoint(entry.maximum,
+                                 0.55 * entry.relativeOpacity * reveal);
+        entry.function->Modified();
+    }
 
     static void addLine(vtkPoints* points, vtkCellArray* cells,
                         const std::vector<Vector3>& positions_m) {
@@ -170,10 +208,6 @@ private:
         const std::array<ParticleOutcome, 4> outcomes{
             ParticleOutcome::Precipitated, ParticleOutcome::Mirrored,
             ParticleOutcome::Escaped, ParticleOutcome::Unresolved};
-        const std::array<std::array<double, 3>, 4> colors{{
-            {{1.0, 0.78, 0.20}}, {{0.85, 0.36, 0.95}},
-            {{0.60, 0.80, 1.0}}, {{0.55, 0.58, 0.65}}
-        }};
         for (std::size_t category = 0; category < outcomes.size(); ++category) {
             vtkNew<vtkPoints> points;
             vtkNew<vtkCellArray> lines;
@@ -196,9 +230,9 @@ private:
             actor->SetMapper(mapper);
             actor->GetProperty()->SetAmbient(0.5);
             actor->GetProperty()->SetOpacity(scene.paths.size() > 300 ? 0.42 : 1.0);
-            actor->GetProperty()->SetColor(colors[category][0],
-                                           colors[category][1],
-                                           colors[category][2]);
+            actor->GetProperty()->SetColor(pathColors[category][0],
+                                           pathColors[category][1],
+                                           pathColors[category][2]);
             renderer->AddActor(actor);
         }
         const bool dense = scene.paths.size() > 300;
@@ -210,9 +244,59 @@ private:
                    0.95, 0.45, 1.0, dense ? 0.65 : 1.0);
     }
 
+    void addAnimatedActors(const ElectronSceneData& scene) {
+        for (const auto& path : scene.paths) ElectronAnimation::validate(path);
+        for (std::size_t category = 0; category < 4; ++category) {
+            animationTrails[category] = vtkSmartPointer<vtkPolyData>::New();
+            vtkNew<vtkTubeFilter> tubes;
+            tubes->SetInputData(animationTrails[category]);
+            tubes->SetRadius(scene.paths.size() > 300 ? 0.00055 : 0.0012);
+            tubes->SetNumberOfSides(6);
+            vtkNew<vtkPolyDataMapper> mapper;
+            mapper->SetInputConnection(tubes->GetOutputPort());
+            vtkNew<vtkActor> actor;
+            actor->SetMapper(mapper);
+            actor->GetProperty()->SetColor(pathColors[category][0],
+                                           pathColors[category][1],
+                                           pathColors[category][2]);
+            actor->GetProperty()->SetAmbient(0.5);
+            actor->GetProperty()->SetOpacity(scene.paths.size() > 300 ? 0.55 : 1.0);
+            renderer->AddActor(actor);
+
+            animationMarkers[category] = vtkSmartPointer<vtkPolyData>::New();
+            vtkNew<vtkSphereSource> sphere;
+            sphere->SetRadius(scene.paths.size() > 300 ? 0.0022 : 0.0035);
+            sphere->SetThetaResolution(8);
+            sphere->SetPhiResolution(8);
+            vtkNew<vtkGlyph3D> glyph;
+            glyph->SetInputData(animationMarkers[category]);
+            glyph->SetSourceConnection(sphere->GetOutputPort());
+            glyph->ScalingOff();
+            vtkNew<vtkPolyDataMapper> pointMapper;
+            pointMapper->SetInputConnection(glyph->GetOutputPort());
+            vtkNew<vtkActor> pointActor;
+            pointActor->SetMapper(pointMapper);
+            const std::array<std::array<double, 3>, 4> markerColors{{
+                {{0.25, 0.95, 1.0}}, {{1.0, 0.5, 0.16}},
+                {{0.95, 0.45, 1.0}}, {{0.60, 0.80, 1.0}}
+            }};
+            pointActor->GetProperty()->SetColor(markerColors[category][0],
+                                                markerColors[category][1],
+                                                markerColors[category][2]);
+            pointActor->GetProperty()->SetAmbient(0.6);
+            renderer->AddActor(pointActor);
+        }
+        animationClock = vtkSmartPointer<vtkTextActor>::New();
+        animationClock->SetDisplayPosition(24, 55);
+        animationClock->GetTextProperty()->SetFontSize(
+            std::min(18, window->GetSize()[0] / 45));
+        animationClock->GetTextProperty()->SetColor(0.9, 0.96, 1.0);
+        renderer->AddViewProp(animationClock);
+    }
+
 public:
     VtkElectronScene(const ElectronSceneData& scene, int width = 1600,
-                     int height = 1000) {
+                     int height = 1000, bool animate = false) : animated(animate) {
         if (!std::isfinite(scene.atmosphereHeight_m) ||
             scene.atmosphereHeight_m < 0.0 || scene.paths.empty() ||
             width <= 0 || height <= 0) {
@@ -230,23 +314,28 @@ public:
         addSphere(1.0 + scene.atmosphereHeight_m / C::earthRadius_m,
                   0.20, 0.75, 0.95, 0.12);
         addMagneticLines(scene);
-        addElectronPaths(scene);
+        if (animated) addAnimatedActors(scene);
+        else addElectronPaths(scene);
 
         vtkNew<vtkTextActor> title;
-        const std::string caption = "ELECTRON PRECIPITATION  |  " +
+        const std::string caption = animated ?
+            "ELECTRON FLIGHT  |  " + std::to_string(scene.paths.size()) + " markers" :
+            "ELECTRON PRECIPITATION  |  " +
             std::to_string(scene.paths.size()) + " markers  |  " +
             std::to_string(scene.precipitationCount()) + " atmosphere entries  |  " +
             std::to_string(scene.countOutcome(ParticleOutcome::Mirrored)) + " mirrored";
         title->SetInput(caption.c_str());
         title->SetDisplayPosition(24, height - 48);
-        title->GetTextProperty()->SetFontSize(22);
+        title->GetTextProperty()->SetFontSize(std::min(22, width / 32));
         title->GetTextProperty()->SetColor(0.93, 0.97, 1.0);
         title->GetTextProperty()->BoldOn();
         renderer->AddViewProp(title);
         vtkNew<vtkTextActor> key;
-        key->SetInput("Gold: precipitated   Magenta: mirrored   Cyan: injection   Orange: atmosphere entry   Blue: field");
+        key->SetInput(animated ?
+            "Gold: entry trail   Magenta: mirror trail   Cyan: flying   Orange: entered" :
+            "Gold: precipitated   Magenta: mirrored   Cyan: injection   Orange: atmosphere entry   Blue: field");
         key->SetDisplayPosition(24, 22);
-        key->GetTextProperty()->SetFontSize(16);
+        key->GetTextProperty()->SetFontSize(std::min(16, width / 50));
         key->GetTextProperty()->SetColor(0.77, 0.87, 0.98);
         renderer->AddViewProp(key);
 
@@ -271,6 +360,67 @@ public:
         }
         renderer->GetActiveCamera()->SetParallelScale(scale_Re);
         renderer->ResetCameraClippingRange();
+    }
+
+    void setAnimationFrame(const ElectronSceneData& scene, double time_s) {
+        if (!animated || !std::isfinite(time_s) || time_s < 0.0)
+            throw std::invalid_argument("VtkElectronScene: invalid animation frame");
+        std::array<vtkSmartPointer<vtkPoints>, 4> trailPoints;
+        std::array<vtkSmartPointer<vtkCellArray>, 4> trailCells;
+        std::array<vtkSmartPointer<vtkPoints>, 4> markerPoints;
+        std::array<vtkSmartPointer<vtkCellArray>, 4> markerCells;
+        for (std::size_t category = 0; category < 4; ++category) {
+            trailPoints[category] = vtkSmartPointer<vtkPoints>::New();
+            trailCells[category] = vtkSmartPointer<vtkCellArray>::New();
+            markerPoints[category] = vtkSmartPointer<vtkPoints>::New();
+            markerCells[category] = vtkSmartPointer<vtkCellArray>::New();
+        }
+        std::size_t flying = 0;
+        std::size_t precipitated = 0;
+        std::size_t mirrored = 0;
+        for (const auto& path : scene.paths) {
+            const auto state = ElectronAnimation::sample(path, time_s);
+            if (!state.visible) continue;
+            const std::size_t category = pathCategory(path.outcome);
+            std::vector<Vector3> trail(path.positions_m.begin(),
+                                       path.positions_m.begin() +
+                                           static_cast<std::ptrdiff_t>(state.completedPoints));
+            if (!state.finished &&
+                (trail.back() - state.position_m).norm() > 0.0)
+                trail.push_back(state.position_m);
+            addLine(trailPoints[category], trailCells[category], trail);
+            const std::size_t markerCategory = !state.finished ? 0 :
+                path.outcome == ParticleOutcome::Precipitated ? 1 :
+                path.outcome == ParticleOutcome::Mirrored ? 2 : 3;
+            const vtkIdType pointId = markerPoints[markerCategory]->InsertNextPoint(
+                state.position_m.x / C::earthRadius_m,
+                state.position_m.y / C::earthRadius_m,
+                state.position_m.z / C::earthRadius_m);
+            markerCells[markerCategory]->InsertNextCell(1, &pointId);
+            if (!state.finished) ++flying;
+            else if (path.outcome == ParticleOutcome::Precipitated) ++precipitated;
+            else if (path.outcome == ParticleOutcome::Mirrored) ++mirrored;
+        }
+        for (std::size_t category = 0; category < 4; ++category) {
+            animationTrails[category]->SetPoints(trailPoints[category]);
+            animationTrails[category]->SetLines(trailCells[category]);
+            animationTrails[category]->Modified();
+            animationMarkers[category]->SetPoints(markerPoints[category]);
+            animationMarkers[category]->SetVerts(markerCells[category]);
+            animationMarkers[category]->Modified();
+        }
+        const std::string clock = "t = " + std::to_string(time_s * 1e6) +
+            " us  |  flying " + std::to_string(flying) +
+            "  |  entered " + std::to_string(precipitated) +
+            "  |  mirrored " + std::to_string(mirrored);
+        animationClock->SetInput(clock.c_str());
+        setEmissionReveal(ElectronAnimation::arrivedWeightFraction(scene, time_s));
+    }
+
+    void setEmissionReveal(double fraction) {
+        if (!std::isfinite(fraction) || fraction < 0.0 || fraction > 1.0)
+            throw std::invalid_argument("VtkElectronScene: invalid emission reveal");
+        for (auto& entry : emissionOpacities) setOpacity(entry, fraction);
     }
 
     void addEmission(const VolumeEmissionGrid& emission,
@@ -370,10 +520,8 @@ public:
         colors->AddRGBPoint(maximum * 0.02, red * 0.35, green * 0.35, blue * 0.35);
         colors->AddRGBPoint(maximum, red, green, blue);
         vtkNew<vtkPiecewiseFunction> opacity;
-        opacity->AddPoint(0.0, 0.0);
-        opacity->AddPoint(maximum * 0.001, 0.0);
-        opacity->AddPoint(maximum * 0.05, 0.09 * relativeOpacity);
-        opacity->AddPoint(maximum, 0.55 * relativeOpacity);
+        EmissionOpacity entry{opacity, maximum, relativeOpacity};
+        setOpacity(entry, 1.0);
         vtkNew<vtkVolumeProperty> property;
         property->SetColor(colors);
         property->SetScalarOpacity(opacity);
@@ -386,6 +534,7 @@ public:
         volume->SetMapper(mapper);
         volume->SetProperty(property);
         renderer->AddVolume(volume);
+        emissionOpacities.push_back(entry);
         renderer->ResetCameraClippingRange();
     }
 

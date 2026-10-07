@@ -20,6 +20,7 @@ struct ElectronPath {
     ParticleOutcome outcome{ParticleOutcome::Unresolved};
     ParticleState terminalState;
     std::vector<Vector3> positions_m;
+    std::vector<double> times_s;
     double initialPitch_rad{};
     double initialGyroPhase_rad{};
     ParticleState initialState;
@@ -98,15 +99,19 @@ public:
         std::uint64_t seen = 0;
         const SimulationResult result = engine.run(initial.state,
             [&](const ParticleState& state) {
-                if (seen % sampleStride == 0) path.positions_m.push_back(state.r);
+                if (seen % sampleStride == 0) {
+                    path.positions_m.push_back(state.r);
+                    path.times_s.push_back(state.time_s);
+                }
                 ++seen;
             });
         path.outcome = result.outcome;
         path.terminalState = result.eventState;
         const Vector3 terminal = result.eventState.r;
         if (path.positions_m.empty() ||
-            (path.positions_m.back() - terminal).norm() > 0.0) {
+            path.times_s.back() < result.eventState.time_s) {
             path.positions_m.push_back(terminal);
+            path.times_s.push_back(result.eventState.time_s);
         }
         return path;
     }

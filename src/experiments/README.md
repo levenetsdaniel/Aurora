@@ -1,9 +1,9 @@
 # Физические эксперименты и отчёты
 
 Это реализация пакета A, первых опытов пакета B, статистического опыта C и
-первых опытов пакета D из
-[`aurora_experiments_plan_ru.md`](../../aurora_experiments_plan_ru.md). VTK и атмосферные
-таблицы не требуются.
+пакета D из [`aurora_experiments_plan_ru.md`](../../aurora_experiments_plan_ru.md).
+Первые семь отчётов не требуют VTK и атмосферных таблиц. Восьмой опыт
+использует атмосферную модель и локально распакованный архив сечений IAA.
 
 ```sh
 cmake -S . -B build -DAURORA_BUILD_VTK_VISUALIZER=OFF
@@ -15,6 +15,30 @@ cmake --build build --target aurora_trajectory_experiments aurora_loss_cone_expe
 python3 src/experiments/make_reports.py experiments/results
 ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment|precipitation_statistics|localized_dipole' --output-on-failure
 ```
+
+Для опыта 8 распакуйте проверенный архив `elmolcs-v0.0.1` из
+[Zenodo](https://zenodo.org/records/8190461) **вне репозитория**. Аргумент
+`IAA_ROOT` — каталог, внутри которого находится папка `elmolcs`, не сама
+папка `elmolcs`. После этого:
+
+```sh
+cmake --build build --target aurora_anomaly_glow_experiment
+./build/aurora_anomaly_glow_experiment experiments/results /path/to/IAA_ROOT --threads 8
+python3 src/experiments/make_anomaly_glow_report.py experiments/results
+```
+
+Опыт 8 сравнивает три seed по 64 электрона 10 кэВ в узком угловом бине
+69,0 ± 0,6°: базовый диполь, нулевую и слабую (1% на поверхности) аномалию.
+Все поля получают **те же начальные состояния**. Орбиты пересчитываются при
+`T/50` и `T/100`; атмосферные каскады — только по исходам при `T/50`.
+`anomaly_glow_particles.csv` и `anomaly_glow_summary.csv` содержат парные
+исходы и проверку шага, `anomaly_glow_profile.csv` — фотонную скорость по
+10-километровым высотным слоям, `anomaly_glow_totals.csv` — объёмный интеграл
+по каждой линии. `anomaly_glow_diagnostics.csv` сохраняет энергетический
+баланс каскадов и потери за сеткой, `anomaly_glow_manifest.txt` — параметры.
+Разреженные 3D-эмиссии каждого seed сохраняются отдельно.
+Суммарный вес источника задан как 1 электрон/с на seed; единицы интеграла —
+фотонов/с при таком нормированном источнике. GIF не используется для измерения.
 
 Скрипту отчётов нужен `matplotlib` (`python3 -m pip install matplotlib`, если его
 нет). Программы создают каталог, если его нет, и перезаписывают в нём только
@@ -45,7 +69,7 @@ ctest --test-dir build -R 'trajectory_experiments|loss_cone_experiment|precipita
 времени события — разные величины; они показаны разными столбцами.
 
 Готовые результаты сохраняются **в проекте**, в [`experiments/results/reports/`](../../experiments/results/reports/README.md):
-семь отдельных `.md`-отчётов, тринадцать PNG-графиков и исходные CSV рядом. Отчёты
+восемь отдельных `.md`-отчётов и исходные CSV рядом. Отчёты
 разделены на проверку интегратора, локализацию события, магнитное зеркало и
 конус потерь, статистику высыпания, поле аномалии и парную проверку её влияния.
 Генератор пересчитывает тексты и рисунки из CSV, поэтому числа
