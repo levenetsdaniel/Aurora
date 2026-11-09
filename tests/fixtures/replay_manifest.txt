@@ -1,3 +1,0 @@
-seed=42
-visual_markers=2
-source_rate_electrons_s1=1e20

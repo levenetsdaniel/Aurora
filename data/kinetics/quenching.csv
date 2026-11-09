@@ -1,8 +1,0 @@
-id,quencher,k0_m3_s,T_ref_K,beta,activation_K,source
-O(1D),O,9.2e-19,300,0,0,https://doi.org/10.1029/92JA01839
-O(1D),O2,1.0e-18,300,0,0,https://doi.org/10.1109/27.467998
-O(1D),O2,2.6e-17,300,0,-67,https://doi.org/10.1109/27.467998
-O(1D),N2,2.3e-17,300,0,0,https://doi.org/10.1109/27.467998
-O(1S),O,5.0e-18,300,0,301,https://doi.org/10.1109/27.467998
-O(1S),O2,4.0e-18,300,0,865,https://doi.org/10.1109/27.467998
-O(1S),N2,1.0e-23,300,0,0,https://doi.org/10.1109/27.467998
