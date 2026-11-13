@@ -5,14 +5,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(AURORA_ENABLE_SANITIZERS "Enable address and undefined behaviour sanitizers" OFF)
 option(BUILD_TESTING "Build physics tests and the validation report tool" OFF)
 include(CTest)
+include(cmake/SourceSnapshot.cmake)
 
 add_library(aurora_core
     src/fields/DipoleField.cpp
     src/physics/Relativity.cpp
     src/physics/ParticleProperties.cpp
     src/physics/Gyromotion.cpp
+    src/physics/LossCone.cpp
     src/numerics/RelativisticBorisPusher.cpp
     src/simulation/TrajectoryRunner.cpp
+    src/simulation/AtmosphereExperiment.cpp
     src/simulation/EventLocator.cpp)
 target_include_directories(aurora_core PUBLIC include)
 target_compile_features(aurora_core PUBLIC cxx_std_20)
@@ -30,12 +33,30 @@ elseif(MSVC)
 endif()
 target_link_libraries(aurora_core PUBLIC aurora_build_options)
 
-add_library(aurora_io src/io/TrajectoryCsv.cpp)
+add_library(aurora_io src/io/TrajectoryCsv.cpp src/io/EventCsv.cpp src/io/ExperimentFiles.cpp)
+target_include_directories(aurora_io PRIVATE "${PROJECT_BINARY_DIR}/generated")
+target_compile_definitions(aurora_io PRIVATE AURORA_BUILD_TYPE="$<CONFIG>")
 target_link_libraries(aurora_io PUBLIC aurora_core)
 add_executable(Aurora main.cpp)
 target_link_libraries(Aurora PRIVATE aurora_io)
 
 if(BUILD_TESTING)
+    add_executable(aurora_week3_report tests/week3_experiments.cpp)
+    target_link_libraries(aurora_week3_report PRIVATE aurora_io)
+    add_executable(aurora_week3_tests tests/week3_tests.cpp)
+    target_link_libraries(aurora_week3_tests PRIVATE aurora_io)
+    foreach(suite IN ITEMS classification parameters hemispheres reproducibility)
+        add_test(NAME ${suite} COMMAND aurora_week3_tests ${suite})
+        set_tests_properties(${suite} PROPERTIES WORKING_DIRECTORY "${PROJECT_BINARY_DIR}")
+    endforeach()
+    add_executable(aurora_replay tests/replay_experiment.cpp)
+    target_link_libraries(aurora_replay PRIVATE aurora_io)
+    add_executable(aurora_loss_cone_tests tests/loss_cone_tests.cpp)
+    target_link_libraries(aurora_loss_cone_tests PRIVATE aurora_core)
+    add_test(NAME loss_cone COMMAND aurora_loss_cone_tests)
+    add_executable(aurora_atmosphere_tests tests/atmosphere_tests.cpp)
+    target_link_libraries(aurora_atmosphere_tests PRIVATE aurora_io)
+    add_test(NAME atmosphere_entry COMMAND aurora_atmosphere_tests)
     # Analytical trajectories are test references, separate from the simulation library.
     add_library(aurora_test_reference tests/reference/UniformFieldSolution.cpp)
     target_include_directories(aurora_test_reference PUBLIC tests)

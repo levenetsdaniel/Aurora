@@ -10,3 +10,4 @@ experiments/results/*_manifest.txt
 .idea/
 /results/
 /docs
+.clang-format

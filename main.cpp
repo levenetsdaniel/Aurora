@@ -1,83 +1,75 @@
-#include "aurora/fields/DipoleField.hpp"
+#include "aurora/io/ExperimentFiles.hpp"
 #include "aurora/physics/ParticleProperties.hpp"
-#include "aurora/io/TrajectoryCsv.hpp"
 #include "aurora/physics/Relativity.hpp"
-#include "aurora/simulation/TrajectoryRunner.hpp"
-
-#include <chrono>
-#include <filesystem>
-#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <numbers>
 
 int main() {
     try {
-        // Учебный пример: электрон стартует на магнитном экваторе и отражается в диполе.
-        const double energy_keV = 100.0;
-        const double pitch_deg = 45.0;
-        const double equatorial_distance_RE = 2.0;
-        const double dt_s = 2e-8;
-        const double max_time_s = 0.1;
+        aurora::ExperimentParameters parameters;
+        parameters.energy_keV = 100.0;
+        parameters.pitch_deg = 45.0; // 5: вход вдоль B; 175: вход против B.
+        parameters.equatorial_distance_RE = 2.0;
+        parameters.dt_s = 2e-8;
+        parameters.max_time_s = 0.1;
+        parameters.atmosphere_height_m = 100000.0;
 
-        const aurora::DipoleField field; // Момент вдоль -z; на экваторе B направлено вдоль +z.
-        const double pitch = pitch_deg * std::numbers::pi / 180.0;
-        if (pitch_deg<=0 || pitch_deg>=90 || equatorial_distance_RE<=1.02)
-            throw std::invalid_argument("Для примера задайте 0<pitch_deg<90 и расстояние>1.02 R_E");
-        const aurora::ParticleState electron{
-            {equatorial_distance_RE * aurora::constants::earth_radius_m, 0, 0},
-            aurora::momentum_from_energy(aurora::constants::eV_to_J(energy_keV*1000),
-                {std::sin(pitch), 0, std::cos(pitch)}), 0
-        };
-        aurora::RunConfig config{dt_s, 10000000, 100};
-        config.max_duration_s = max_time_s;
-        config.inner_radius_m = 1.02 * aurora::constants::earth_radius_m;
-        config.outer_radius_m = 4.0 * aurora::constants::earth_radius_m;
-        config.detect_mirrors = true;
-        config.stop_at_first_mirror = true;
+        const auto prepared = aurora::prepare_experiment(parameters);
+        const auto& cone = prepared.loss_cone;
 
-        const auto output = std::filesystem::absolute("results");
-        std::filesystem::create_directories(output);
-        std::ofstream csv(output / "trajectory.csv");
-        csv.exceptions(std::ios::failbit | std::ios::badbit);
-        aurora::write_magnetic_trajectory_header(csv);
-        const auto started = std::chrono::steady_clock::now();
-        const auto result = aurora::run_trajectory(electron, field, config,
-            [&](std::size_t step, const aurora::ParticleState& state) {
-                aurora::write_magnetic_trajectory_row(csv, step, state, field);
-            });
-        csv.close();
-        const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
+        std::cout << std::setprecision(10)
+                  << "Критический питч-угол: " << cone.critical_angle_rad * 180 / std::numbers::pi
+                  << " градусов\n"
+                  << "Начальный питч-угол: " << parameters.pitch_deg << " градусов\n"
+                  << "Аналитический прогноз: "
+                  << (prepared.prediction ? aurora::prediction_name(*prepared.prediction)
+                                          : "not_applicable")
+                  << '\n'
+                  << std::flush;
 
-        std::ofstream events(output / "events.csv");
-        events.exceptions(std::ios::failbit | std::ios::badbit);
-        events << "type,time_s,x_m,y_m,z_m,B_T,bracket_width_s\n" << std::setprecision(17);
-        for (const auto& e : result.events) {
-            const char* name = e.type==aurora::EventType::Mirror ? "mirror"
-                : (e.type==aurora::EventType::InnerBoundary ? "inner_boundary" : "outer_boundary");
-            events << name << ',' << e.state.time_s << ',' << e.state.position_m.x << ','
-                   << e.state.position_m.y << ',' << e.state.position_m.z << ','
-                   << aurora::norm(field.at(e.state.position_m,e.state.time_s)) << ',' << e.bracket_width_s << '\n';
+        const auto saved = aurora::save_experiment(parameters, "results");
+        const auto& result = saved.result;
+        const auto& run = result.trajectory;
+        const auto& state = run.final_state;
+
+        std::cout << "Исход: " << aurora::outcome_name(result.outcome)
+                  << "; сравнение с прогнозом: " << aurora::agreement_name(result.agreement) << '\n'
+                  << "Причина остановки: " << aurora::stop_reason_name(run.stop_reason) << '\n'
+                  << "Физическое время: " << state.time_s << " с; шагов: " << run.completed_steps
+                  << '\n'
+                  << "Отклонение энергии: " << run.max_relative_energy_error << '\n'
+                  << "Максимальное отклонение mu: " << run.max_relative_magnetic_moment_error
+                  << '\n';
+
+        if (result.outcome == aurora::ExperimentOutcome::AtmosphereReached) {
+            std::cout << "Электрон достиг атмосферной границы.\n"
+                      << "Координаты входа: " << state.position_m.x << ", " << state.position_m.y
+                      << ", " << state.position_m.z << " м\n"
+                      << "Высота: "
+                      << aurora::norm(state.position_m) - aurora::constants::earth_radius_m
+                      << " м\n"
+                      << "Энергия входа: "
+                      << aurora::constants::J_to_eV(
+                             aurora::kinetic_energy_J(state.momentum_kg_m_s)) /
+                    1000
+                      << " кэВ\n";
+
+        } else if (result.outcome == aurora::ExperimentOutcome::Reflected) {
+            const double expected =
+                aurora::predicted_mirror_field_T(prepared.initial, prepared.field);
+            const double measured = aurora::norm(prepared.field.at(state.position_m, state.time_s));
+
+            std::cout << "B отражения: " << measured << " Тл; адиабатическая оценка: " << expected
+                      << " Тл; отличие: " << std::abs(measured / expected - 1) << '\n';
         }
-        events.close();
-        std::cout << std::setprecision(7)
-                  << "Aurora: магнитное отражение электрона в дипольном поле\n"
-                  << "Энергия: " << energy_keV << " кэВ; начальный питч-угол: " << pitch_deg << " градусов\n"
-                  << "Причина остановки: " << aurora::stop_reason_name(result.stop_reason) << '\n'
-                  << "Физическое время: " << result.final_state.time_s << " с; шагов: " << result.completed_steps << '\n'
-                  << "Отклонение энергии: " << result.max_relative_energy_error << '\n'
-                  << "Максимальное отклонение первого инварианта mu: " << result.max_relative_magnetic_moment_error << '\n';
-        if (result.stop_reason==aurora::StopReason::Mirror) {
-            const double expected = aurora::predicted_mirror_field_T(electron,field);
-            const double measured = aurora::norm(field.at(result.final_state.position_m,result.final_state.time_s));
-            std::cout << "B отражения: " << measured << " Тл; адиабатическая оценка: " << expected << " Тл\n"
-                      << "Относительное отличие: " << std::abs(measured/expected-1) << '\n';
-        }
-        std::cout << "Время вычислений: " << elapsed << " с\n"
-                  << "Траектория: " << (output / "trajectory.csv").string() << '\n'
-                  << "События: " << (output / "events.csv").string() << '\n';
-        if (result.stop_reason==aurora::StopReason::NumericalError)
-            throw std::runtime_error(result.error_message);
+
+        std::cout << "Время вычислений: " << saved.wall_time_s << " с\n"
+                  << "Результаты запуска: " << saved.directory.string() << '\n';
+
+        if (result.outcome == aurora::ExperimentOutcome::NumericalError)
+            throw std::runtime_error(run.error_message);
+
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Ошибка: " << error.what() << '\n';

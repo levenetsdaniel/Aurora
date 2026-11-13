@@ -10,32 +10,46 @@ namespace aurora {
 void write_trajectory_header(std::ostream& out) {
     out << "step,time_s,x_m,y_m,z_m,px_kg_m_s,py_kg_m_s,pz_kg_m_s,"
            "vx_m_s,vy_m_s,vz_m_s,gamma,kinetic_energy_J\n";
-    if (!out) throw std::runtime_error("Cannot write trajectory header");
+
+    if (!out)
+        throw std::runtime_error("Cannot write trajectory header");
 }
+
 void write_trajectory_row(std::ostream& out, std::size_t step, const ParticleState& s) {
     const auto v = velocity_from_momentum(s.momentum_kg_m_s);
-    out << std::setprecision(17) << step << ',' << s.time_s << ','
-        << s.position_m.x << ',' << s.position_m.y << ',' << s.position_m.z << ','
-        << s.momentum_kg_m_s.x << ',' << s.momentum_kg_m_s.y << ',' << s.momentum_kg_m_s.z << ','
-        << v.x << ',' << v.y << ',' << v.z << ',' << lorentz_factor(s.momentum_kg_m_s) << ','
+
+    out << std::setprecision(17) << step << ',' << s.time_s << ',' << s.position_m.x << ','
+        << s.position_m.y << ',' << s.position_m.z << ',' << s.momentum_kg_m_s.x << ','
+        << s.momentum_kg_m_s.y << ',' << s.momentum_kg_m_s.z << ',' << v.x << ',' << v.y << ','
+        << v.z << ',' << lorentz_factor(s.momentum_kg_m_s) << ','
         << kinetic_energy_J(s.momentum_kg_m_s) << '\n';
-    if (!out) throw std::runtime_error("Cannot write trajectory sample");
+
+    if (!out)
+        throw std::runtime_error("Cannot write trajectory sample");
 }
+
 void write_magnetic_trajectory_header(std::ostream& out) {
     out << "step,time_s,x_m,y_m,z_m,px_kg_m_s,py_kg_m_s,pz_kg_m_s,"
            "kinetic_energy_J,altitude_m,B_T,pitch_deg,p_parallel_kg_m_s,mu_J_T\n";
-    if (!out) throw std::runtime_error("Cannot write magnetic trajectory header");
+
+    if (!out)
+        throw std::runtime_error("Cannot write magnetic trajectory header");
 }
-void write_magnetic_trajectory_row(std::ostream& out, std::size_t step,
-    const ParticleState& s, const MagneticField& field) {
-    const auto d=particle_properties(s,field);
-    out << std::setprecision(17) << step << ',' << s.time_s << ','
-        << s.position_m.x << ',' << s.position_m.y << ',' << s.position_m.z << ','
-        << s.momentum_kg_m_s.x << ',' << s.momentum_kg_m_s.y << ',' << s.momentum_kg_m_s.z << ','
-        << kinetic_energy_J(s.momentum_kg_m_s) << ',' << norm(s.position_m)-constants::earth_radius_m << ','
-        << d.field_T << ',';
-    if (d.pitch_angle_rad) out << *d.pitch_angle_rad*180.0/std::numbers::pi;
+
+void write_magnetic_trajectory_row(
+    std::ostream& out, std::size_t step, const ParticleState& s, const MagneticField& field) {
+    const auto d = particle_properties(s, field);
+
+    out << std::setprecision(17) << step << ',' << s.time_s << ',' << s.position_m.x << ','
+        << s.position_m.y << ',' << s.position_m.z << ',' << s.momentum_kg_m_s.x << ','
+        << s.momentum_kg_m_s.y << ',' << s.momentum_kg_m_s.z << ','
+        << kinetic_energy_J(s.momentum_kg_m_s) << ','
+        << norm(s.position_m) - constants::earth_radius_m << ',' << d.field_T << ',';
+    if (d.pitch_angle_rad)
+        out << *d.pitch_angle_rad * 180.0 / std::numbers::pi;
     out << ',' << d.parallel_momentum_kg_m_s << ',' << d.magnetic_moment_J_T << '\n';
-    if (!out) throw std::runtime_error("Cannot write magnetic trajectory sample");
+
+    if (!out)
+        throw std::runtime_error("Cannot write magnetic trajectory sample");
 }
 } // namespace aurora

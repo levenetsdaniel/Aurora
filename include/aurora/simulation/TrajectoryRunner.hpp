@@ -20,14 +20,23 @@ struct RunConfig {
     double event_tolerance_s{1e-11};
     double mirror_hysteresis{1e-3}; // Fraction of |p|; rearm only after leaving the zero region.
 };
-enum class StopReason { StepLimit, TimeLimit, InnerBoundary, OuterBoundary, Mirror, NumericalError };
+enum class StopReason {
+    StepLimit,
+    TimeLimit,
+    InnerBoundary,
+    OuterBoundary,
+    Mirror,
+    NumericalError
+};
 const char* stop_reason_name(StopReason reason);
 enum class EventType { Mirror, InnerBoundary, OuterBoundary };
+
 struct TrajectoryEvent {
     EventType type;
     ParticleState state;
     double bracket_width_s{};
 };
+
 struct RunSummary {
     ParticleState final_state;
     std::size_t completed_steps{};
@@ -41,7 +50,8 @@ struct RunSummary {
     std::vector<TrajectoryEvent> events{};
     std::string error_message{};
 };
+
 using TrajectoryObserver = std::function<void(std::size_t, const ParticleState&)>;
 RunSummary run_trajectory(const ParticleState& initial, const MagneticField& field,
-                          RunConfig config, const TrajectoryObserver& observer = {});
+    RunConfig config, const TrajectoryObserver& observer = {});
 } // namespace aurora
