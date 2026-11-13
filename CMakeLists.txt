@@ -7,10 +7,13 @@ option(BUILD_TESTING "Build physics tests and the validation report tool" OFF)
 include(CTest)
 
 add_library(aurora_core
+    src/fields/DipoleField.cpp
     src/physics/Relativity.cpp
+    src/physics/ParticleProperties.cpp
+    src/physics/Gyromotion.cpp
     src/numerics/RelativisticBorisPusher.cpp
     src/simulation/TrajectoryRunner.cpp
-    src/diagnostics/UniformFieldSolution.cpp)
+    src/simulation/EventLocator.cpp)
 target_include_directories(aurora_core PUBLIC include)
 target_compile_features(aurora_core PUBLIC cxx_std_20)
 set_target_properties(aurora_core PROPERTIES CXX_EXTENSIONS OFF)
@@ -33,10 +36,21 @@ add_executable(Aurora main.cpp)
 target_link_libraries(Aurora PRIVATE aurora_io)
 
 if(BUILD_TESTING)
+    # Analytical trajectories are test references, separate from the simulation library.
+    add_library(aurora_test_reference tests/reference/UniformFieldSolution.cpp)
+    target_include_directories(aurora_test_reference PUBLIC tests)
+    target_link_libraries(aurora_test_reference PUBLIC aurora_core)
+    add_executable(aurora_week2_report tests/week2_validation.cpp)
+    target_link_libraries(aurora_week2_report PRIVATE aurora_core)
+    add_executable(aurora_week2_tests tests/week2_tests.cpp)
+    target_link_libraries(aurora_week2_tests PRIVATE aurora_io)
+    foreach(suite IN ITEMS dipole particle_properties events limits mirrors dipole_convergence)
+        add_test(NAME ${suite} COMMAND aurora_week2_tests ${suite})
+    endforeach()
     add_executable(aurora_validation_report tests/validation_report.cpp)
-    target_link_libraries(aurora_validation_report PRIVATE aurora_core)
+    target_link_libraries(aurora_validation_report PRIVATE aurora_test_reference)
     add_executable(aurora_tests tests/week1_tests.cpp)
-    target_link_libraries(aurora_tests PRIVATE aurora_io)
+    target_link_libraries(aurora_tests PRIVATE aurora_io aurora_test_reference)
     foreach(suite IN ITEMS vectors relativity zero_field uniform_field convergence long_run invalid_input csv)
         add_test(NAME ${suite} COMMAND aurora_tests ${suite})
     endforeach()

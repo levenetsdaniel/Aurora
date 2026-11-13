@@ -16,6 +16,7 @@ public:
         std::size_t steps_{};
     public:
         double time_s() const { return initial_time_s_ + static_cast<double>(steps_)*dt_s_; }
+        Vec3 position_m() const { return position_m_; }
     };
     explicit RelativisticBorisPusher(double dt_s);
     State initialize(const ParticleState& initial, const MagneticField& field) const;

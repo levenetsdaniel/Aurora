@@ -1,4 +1,5 @@
-#include "aurora/diagnostics/UniformFieldSolution.hpp"
+#include "reference/UniformFieldSolution.hpp"
+#include "aurora/physics/Gyromotion.hpp"
 #include "aurora/io/TrajectoryCsv.hpp"
 #include "aurora/physics/Constants.hpp"
 #include "aurora/physics/Relativity.hpp"
@@ -67,7 +68,7 @@ void zero_field() {
     near(norm(summary.final_state.momentum_kg_m_s-initial.momentum_kg_m_s),0,0,"constant momentum");
     near(summary.final_state.time_s,3e-6,1e-21,"time");
     near(summary.max_relative_energy_error,0,0,"zero-field energy");
-    const auto reference=uniform_field_solution(initial,{},3e-6);
+    const auto reference=test_reference::uniform_field_solution(initial,{},3e-6);
     near(norm(reference.position_m-expected),0,1e-12,"zero-field analytic limit");
 
     std::vector<std::size_t> seen;
@@ -83,7 +84,7 @@ void uniform_field() {
     const ParticleState start{{},momentum_from_energy(constants::eV_to_J(10000),{1,0,0}),0};
     const double period=gyroperiod_s(start.momentum_kg_m_s,b);
     const double radius=larmor_radius_m(start.momentum_kg_m_s,b);
-    const auto quarter=uniform_field_solution(start,b,period/4);
+    const auto quarter=test_reference::uniform_field_solution(start,b,period/4);
     near(quarter.position_m.x/radius,1,1e-14,"analytic quarter-turn x");
     near(quarter.position_m.y/radius,1,1e-14,"analytic quarter-turn y");
     require(quarter.momentum_kg_m_s.y>0,"analytic electron rotation sign");
@@ -99,7 +100,7 @@ void uniform_field() {
             const double dt=gyroperiod_s(initial.momentum_kg_m_s,field_vector)/1000;
             double max_r_error=0, max_p_error=0;
             const auto result=run_trajectory(initial,field,{dt,1000,1},[&](std::size_t,const ParticleState& s) {
-                const auto exact=uniform_field_solution(initial,field_vector,s.time_s);
+                const auto exact=test_reference::uniform_field_solution(initial,field_vector,s.time_s);
                 max_r_error=std::max(max_r_error,norm(s.position_m-exact.position_m));
                 max_p_error=std::max(max_p_error,norm(s.momentum_kg_m_s-exact.momentum_kg_m_s));
             });
@@ -125,7 +126,7 @@ void convergence() {
     const UniformField field(b);
     const ParticleState initial{{},momentum_from_energy(constants::eV_to_J(10000),{std::sqrt(3.0),0,1}),0};
     const double end=0.7*gyroperiod_s(initial.momentum_kg_m_s,b);
-    const auto reference=uniform_field_solution(initial,b,end);
+    const auto reference=test_reference::uniform_field_solution(initial,b,end);
     double previous_r=0,previous_p=0;
     for (std::size_t steps : {40u,80u,160u,320u}) {
         const auto result=run_trajectory(initial,field,{end/static_cast<double>(steps),steps,1});
@@ -146,7 +147,7 @@ void long_run() {
     const auto result=run_trajectory(initial,field,{period/200,20000,137});
     near(result.max_relative_energy_error,0,1e-9,"100-period energy bound");
     require(result.max_speed_m_s<constants::speed_of_light_m_s,"100-period subluminal speed");
-    const auto reference=uniform_field_solution(initial,b,result.final_state.time_s);
+    const auto reference=test_reference::uniform_field_solution(initial,b,result.final_state.time_s);
     const double relative_p_error=norm(result.final_state.momentum_kg_m_s-reference.momentum_kg_m_s)/norm(initial.momentum_kg_m_s);
     require(relative_p_error>0.01 && relative_p_error<0.06,"finite phase error despite conserved energy");
 }

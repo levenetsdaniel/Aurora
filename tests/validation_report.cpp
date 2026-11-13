@@ -1,4 +1,5 @@
-#include "aurora/diagnostics/UniformFieldSolution.hpp"
+#include "reference/UniformFieldSolution.hpp"
+#include "aurora/physics/Gyromotion.hpp"
 #include "aurora/physics/Constants.hpp"
 #include "aurora/physics/Relativity.hpp"
 #include "aurora/simulation/TrajectoryRunner.hpp"
@@ -29,7 +30,7 @@ Measurement measure(std::size_t per_period, std::size_t periods) {
     Vec3 quarter{}, half{};
     const auto summary = run_trajectory(initial,field,{m.dt,per_period*periods,1},
         [&](std::size_t step, const ParticleState& s) {
-            const auto exact = uniform_field_solution(initial,b,s.time_s);
+            const auto exact = test_reference::uniform_field_solution(initial,b,s.time_s);
             m.position_error = std::max(m.position_error,norm(s.position_m-exact.position_m));
             m.momentum_error = std::max(m.momentum_error,
                 norm(s.momentum_kg_m_s-exact.momentum_kg_m_s)/norm(initial.momentum_kg_m_s));
