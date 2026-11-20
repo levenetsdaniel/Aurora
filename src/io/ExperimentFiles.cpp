@@ -2,7 +2,6 @@
 #include "aurora/io/TrajectoryCsv.hpp"
 #include "aurora/io/EventCsv.hpp"
 #include "aurora/physics/Relativity.hpp"
-#include "aurora/BuildInfo.hpp"
 #include <charconv>
 #include <chrono>
 #include <fstream>
@@ -42,13 +41,11 @@ std::filesystem::path new_directory(const std::filesystem::path& root) {
 void manifest(const std::filesystem::path& directory, const char* status, long long started) {
     auto out = file(directory / "manifest.txt");
     out << "schema_version=1\nexecution_status=" << status << "\nstarted_unix_ms=" << started
-        << "\nupdated_unix_ms=" << now_ms() << "\nsource_sha256=" << build_info::source_sha256
-        << "\ngit_commit_at_configuration=" << build_info::git_commit
-        << "\ngit_state_at_configuration=" << build_info::git_state
-        << "\ncompiler=" << build_info::compiler << "\nplatform=" << build_info::platform
-        << "\nbuild_type=" << AURORA_BUILD_TYPE << "\ncompiler_flags=" << build_info::compiler_flags
+        << "\nupdated_unix_ms=" << now_ms() << "\ngit_commit_at_configuration=" << AURORA_GIT_COMMIT
+        << "\ngit_state_at_configuration=" << AURORA_GIT_STATE << "\ncompiler=" << AURORA_COMPILER
+        << "\nplatform=" << AURORA_PLATFORM << "\nbuild_type=" << AURORA_BUILD_TYPE
         << "\ncxx_standard=20\nmodel=static_centered_dipole_E_zero\ncoordinates=geocentric_cartesian_SI"
-        << "\nrandom_generator=none\nsource_manifest=source/source.sha256"
+        << "\nrandom_generator=none"
         << "\nelectron_mass_kg=" << constants::electron_mass_kg
         << "\nelectron_charge_C=" << constants::electron_charge_C
         << "\nspeed_of_light_m_s=" << constants::speed_of_light_m_s
@@ -194,8 +191,6 @@ SavedExperiment save_experiment(const ExperimentParameters& parameters,
         auto config = file(directory / "parameters.txt");
         write_experiment_parameters(config, parameters);
         config.close();
-        std::filesystem::copy(build_info::snapshot_directory, directory / "source",
-            std::filesystem::copy_options::recursive);
         auto csv = file(directory / "trajectory.csv");
         write_magnetic_trajectory_header(csv);
         const auto start = std::chrono::steady_clock::now();

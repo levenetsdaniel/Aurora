@@ -3,10 +3,9 @@ project(Aurora VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(AURORA_ENABLE_SANITIZERS "Enable address and undefined behaviour sanitizers" OFF)
-option(BUILD_TESTING "Build physics tests and the validation report tool" OFF)
+option(BUILD_TESTING "Build physics tests and experiment programs" OFF)
 option(AURORA_ENABLE_VTK "Build the interactive electron demonstration when VTK is available" ON)
 include(CTest)
-include(cmake/SourceSnapshot.cmake)
 
 add_library(aurora_core
     src/fields/DipoleField.cpp
@@ -35,8 +34,27 @@ endif()
 target_link_libraries(aurora_core PUBLIC aurora_build_options)
 
 add_library(aurora_io src/io/TrajectoryCsv.cpp src/io/EventCsv.cpp src/io/ExperimentFiles.cpp)
-target_include_directories(aurora_io PRIVATE "${PROJECT_BINARY_DIR}/generated")
-target_compile_definitions(aurora_io PRIVATE AURORA_BUILD_TYPE="$<CONFIG>")
+execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    OUTPUT_VARIABLE AURORA_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT AURORA_GIT_COMMIT)
+    set(AURORA_GIT_COMMIT unknown)
+endif()
+execute_process(COMMAND git status --porcelain --untracked-files=no
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" RESULT_VARIABLE AURORA_GIT_STATUS_RESULT
+    OUTPUT_VARIABLE AURORA_GIT_STATUS OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT AURORA_GIT_STATUS_RESULT EQUAL 0)
+    set(AURORA_GIT_STATE unknown)
+elseif(AURORA_GIT_STATUS)
+    set(AURORA_GIT_STATE dirty)
+else()
+    set(AURORA_GIT_STATE clean)
+endif()
+target_compile_definitions(aurora_io PRIVATE
+    AURORA_BUILD_TYPE="$<CONFIG>"
+    AURORA_GIT_COMMIT="${AURORA_GIT_COMMIT}"
+    AURORA_GIT_STATE="${AURORA_GIT_STATE}"
+    AURORA_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+    AURORA_PLATFORM="${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR}")
 target_link_libraries(aurora_io PUBLIC aurora_core)
 add_executable(Aurora main.cpp)
 
@@ -65,6 +83,9 @@ else()
 endif()
 
 if(BUILD_TESTING)
+    add_executable(aurora_loss_cone_boundary experiments/loss_cone_boundary.cpp)
+    target_link_libraries(aurora_loss_cone_boundary PRIVATE aurora_io)
+
     add_executable(aurora_visualization_tests tests/visualization_data_tests.cpp)
     target_link_libraries(aurora_visualization_tests PRIVATE aurora_visual_data)
     add_test(NAME visualization_data COMMAND aurora_visualization_tests)
@@ -75,15 +96,15 @@ if(BUILD_TESTING)
         vtk_module_autoinit(TARGETS aurora_vtk_smoke MODULES ${VTK_LIBRARIES})
     endif()
 
-    add_executable(aurora_week3_report tests/week3_experiments.cpp)
-    target_link_libraries(aurora_week3_report PRIVATE aurora_io)
+    add_executable(aurora_atmospheric_precipitation experiments/atmospheric_precipitation.cpp)
+    target_link_libraries(aurora_atmospheric_precipitation PRIVATE aurora_io)
     add_executable(aurora_week3_tests tests/week3_tests.cpp)
     target_link_libraries(aurora_week3_tests PRIVATE aurora_io)
     foreach(suite IN ITEMS classification parameters hemispheres reproducibility)
         add_test(NAME ${suite} COMMAND aurora_week3_tests ${suite})
         set_tests_properties(${suite} PROPERTIES WORKING_DIRECTORY "${PROJECT_BINARY_DIR}")
     endforeach()
-    add_executable(aurora_replay tests/replay_experiment.cpp)
+    add_executable(aurora_replay experiments/replay_experiment.cpp)
     target_link_libraries(aurora_replay PRIVATE aurora_io)
     add_executable(aurora_loss_cone_tests tests/loss_cone_tests.cpp)
     target_link_libraries(aurora_loss_cone_tests PRIVATE aurora_core)
@@ -95,15 +116,15 @@ if(BUILD_TESTING)
     add_library(aurora_test_reference tests/reference/UniformFieldSolution.cpp)
     target_include_directories(aurora_test_reference PUBLIC tests)
     target_link_libraries(aurora_test_reference PUBLIC aurora_core)
-    add_executable(aurora_week2_report tests/week2_validation.cpp)
-    target_link_libraries(aurora_week2_report PRIVATE aurora_core)
+    add_executable(aurora_dipole_mirroring experiments/dipole_mirroring.cpp)
+    target_link_libraries(aurora_dipole_mirroring PRIVATE aurora_core)
     add_executable(aurora_week2_tests tests/week2_tests.cpp)
     target_link_libraries(aurora_week2_tests PRIVATE aurora_io)
     foreach(suite IN ITEMS dipole particle_properties events limits mirrors dipole_convergence)
         add_test(NAME ${suite} COMMAND aurora_week2_tests ${suite})
     endforeach()
-    add_executable(aurora_validation_report tests/validation_report.cpp)
-    target_link_libraries(aurora_validation_report PRIVATE aurora_test_reference)
+    add_executable(aurora_uniform_field_convergence experiments/uniform_field_convergence.cpp)
+    target_link_libraries(aurora_uniform_field_convergence PRIVATE aurora_test_reference)
     add_executable(aurora_tests tests/week1_tests.cpp)
     target_link_libraries(aurora_tests PRIVATE aurora_io aurora_test_reference)
     foreach(suite IN ITEMS vectors relativity zero_field uniform_field convergence long_run invalid_input csv)
@@ -114,6 +135,6 @@ if(BUILD_TESTING)
     set_tests_properties(example_run PROPERTIES
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/test-results/example
         ENVIRONMENT "AURORA_NO_GUI=1")
-    add_test(NAME validation_report COMMAND aurora_validation_report
-        --output ${CMAKE_CURRENT_BINARY_DIR}/test-results/validation.md)
+    add_test(NAME uniform_field_convergence COMMAND aurora_uniform_field_convergence
+        --output ${CMAKE_CURRENT_BINARY_DIR}/test-results/uniform_field_convergence.csv)
 endif()

@@ -191,15 +191,18 @@ void reproducibility() {
     require(norm(first.result.trajectory.final_state.momentum_kg_m_s -
                 second.result.trajectory.final_state.momentum_kg_m_s) == 0,
         "Replay momentum differs");
-    for (const char* name : {"parameters.txt", "manifest.txt", "summary.csv", "events.csv",
-             "trajectory.csv", "source/source.sha256", "source/main.cpp", "source/CMakeLists.txt"})
+    for (const char* name :
+        {"parameters.txt", "manifest.txt", "summary.csv", "events.csv", "trajectory.csv"})
         require(std::filesystem::is_regular_file(first.directory / name),
             "Missing reproducibility artifact");
     std::ifstream manifest(first.directory / "manifest.txt");
     const std::string text((std::istreambuf_iterator<char>(manifest)), {});
     require(text.find("execution_status=finished") != std::string::npos &&
-            text.find("source_sha256=") != std::string::npos,
+            text.find("git_commit_at_configuration=") != std::string::npos &&
+            text.find("git_state_at_configuration=") != std::string::npos,
         "Manifest status/provenance");
+    require(
+        !std::filesystem::exists(first.directory / "source"), "Run must not copy the source tree");
     auto invalid = p;
     invalid.atmosphere_height_m = -1;
     const auto invalid_root = first.directory / "invalid";
