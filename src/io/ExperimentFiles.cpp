@@ -184,8 +184,8 @@ ExperimentParameters read_experiment_parameters(std::istream& input) {
     return p;
 }
 
-SavedExperiment save_experiment(
-    const ExperimentParameters& parameters, const std::filesystem::path& root) {
+SavedExperiment save_experiment(const ExperimentParameters& parameters,
+    const std::filesystem::path& root, const TrajectoryObserver& observer) {
     const auto e = prepare_experiment(parameters);
     const auto directory = new_directory(root);
     const auto started_ms = now_ms();
@@ -200,12 +200,23 @@ SavedExperiment save_experiment(
         write_magnetic_trajectory_header(csv);
         const auto start = std::chrono::steady_clock::now();
 
-        auto result = run_atmosphere_experiment(e, [&](std::size_t step, const ParticleState& s) {
-            write_magnetic_trajectory_row(csv, step, s, e.field);
-        });
+        auto integration = e;
+        if (observer)
+            integration.config.sample_every = 1;
+
+        auto result =
+            run_atmosphere_experiment(integration, [&](std::size_t step, const ParticleState& s) {
+                if (!observer || step % parameters.sample_every == 0)
+                    write_magnetic_trajectory_row(csv, step, s, e.field);
+                if (observer)
+                    observer(step, s);
+            });
         const double elapsed =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 
+        if (observer && result.trajectory.completed_steps % parameters.sample_every != 0)
+            write_magnetic_trajectory_row(
+                csv, result.trajectory.completed_steps, result.trajectory.final_state, e.field);
         csv.close();
 
         auto events = file(directory / "events.csv");

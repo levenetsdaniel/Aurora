@@ -4,6 +4,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(AURORA_ENABLE_SANITIZERS "Enable address and undefined behaviour sanitizers" OFF)
 option(BUILD_TESTING "Build physics tests and the validation report tool" OFF)
+option(AURORA_ENABLE_VTK "Build the interactive electron demonstration when VTK is available" ON)
 include(CTest)
 include(cmake/SourceSnapshot.cmake)
 
@@ -38,9 +39,42 @@ target_include_directories(aurora_io PRIVATE "${PROJECT_BINARY_DIR}/generated")
 target_compile_definitions(aurora_io PRIVATE AURORA_BUILD_TYPE="$<CONFIG>")
 target_link_libraries(aurora_io PUBLIC aurora_core)
 add_executable(Aurora main.cpp)
-target_link_libraries(Aurora PRIVATE aurora_io)
+
+if(AURORA_ENABLE_VTK)
+    find_package(VTK 9.1 QUIET COMPONENTS CommonCore CommonDataModel FiltersCore FiltersSources
+        InteractionStyle RenderingCore RenderingOpenGL2 RenderingAnnotation RenderingFreeType
+        ChartsCore RenderingContext2D RenderingContextOpenGL2 IOImage)
+    if(NOT VTK_FOUND)
+        message(STATUS "VTK was not found: Aurora will run in console mode. Set VTK_DIR to enable the viewer.")
+    endif()
+endif()
+
+if((AURORA_ENABLE_VTK AND VTK_FOUND) OR BUILD_TESTING)
+    add_library(aurora_visual_data src/visualization/DemoData.cpp)
+    target_link_libraries(aurora_visual_data PUBLIC aurora_io)
+endif()
+
+if(AURORA_ENABLE_VTK AND VTK_FOUND)
+    add_library(aurora_vtk src/visualization/VtkViewer.cpp)
+    target_link_libraries(aurora_vtk PUBLIC aurora_visual_data PRIVATE ${VTK_LIBRARIES})
+    target_compile_definitions(Aurora PRIVATE AURORA_HAS_VTK=1)
+    target_link_libraries(Aurora PRIVATE aurora_vtk)
+    vtk_module_autoinit(TARGETS aurora_vtk Aurora MODULES ${VTK_LIBRARIES})
+else()
+    target_link_libraries(Aurora PRIVATE aurora_io)
+endif()
 
 if(BUILD_TESTING)
+    add_executable(aurora_visualization_tests tests/visualization_data_tests.cpp)
+    target_link_libraries(aurora_visualization_tests PRIVATE aurora_visual_data)
+    add_test(NAME visualization_data COMMAND aurora_visualization_tests)
+
+    if(AURORA_ENABLE_VTK AND VTK_FOUND)
+        add_executable(aurora_vtk_smoke tests/vtk_smoke.cpp)
+        target_link_libraries(aurora_vtk_smoke PRIVATE aurora_vtk)
+        vtk_module_autoinit(TARGETS aurora_vtk_smoke MODULES ${VTK_LIBRARIES})
+    endif()
+
     add_executable(aurora_week3_report tests/week3_experiments.cpp)
     target_link_libraries(aurora_week3_report PRIVATE aurora_io)
     add_executable(aurora_week3_tests tests/week3_tests.cpp)
@@ -78,7 +112,8 @@ if(BUILD_TESTING)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/test-results/example)
     add_test(NAME example_run COMMAND Aurora)
     set_tests_properties(example_run PROPERTIES
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/test-results/example)
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/test-results/example
+        ENVIRONMENT "AURORA_NO_GUI=1")
     add_test(NAME validation_report COMMAND aurora_validation_report
         --output ${CMAKE_CURRENT_BINARY_DIR}/test-results/validation.md)
 endif()

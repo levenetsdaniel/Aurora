@@ -15,6 +15,7 @@ struct SavedExperiment {
 };
 
 // Creates a new directory for every run; existing results are never overwritten.
-SavedExperiment save_experiment(
-    const ExperimentParameters& parameters, const std::filesystem::path& output_root);
+// The optional observer receives every step without changing the CSV sampling interval.
+SavedExperiment save_experiment(const ExperimentParameters& parameters,
+    const std::filesystem::path& output_root, const TrajectoryObserver& observer = {});
 } // namespace aurora

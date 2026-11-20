@@ -4,6 +4,10 @@
 #include <iomanip>
 #include <iostream>
 #include <numbers>
+#include <cstdlib>
+#ifdef AURORA_HAS_VTK
+#include "aurora/visualization/VtkViewer.hpp"
+#endif
 
 int main() {
     try {
@@ -14,6 +18,15 @@ int main() {
         parameters.dt_s = 2e-8;
         parameters.max_time_s = 0.1;
         parameters.atmosphere_height_m = 100000.0;
+
+#ifdef AURORA_HAS_VTK
+        if (!std::getenv("AURORA_NO_GUI")) {
+            const auto cases =
+                aurora::visualization::create_demo_cases(parameters, "results/visualization");
+            aurora::visualization::show_demo(cases);
+            return 0;
+        }
+#endif
 
         const auto prepared = aurora::prepare_experiment(parameters);
         const auto& cone = prepared.loss_cone;
