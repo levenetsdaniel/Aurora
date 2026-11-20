@@ -16,6 +16,7 @@ add_library(aurora_core
     src/numerics/RelativisticBorisPusher.cpp
     src/simulation/TrajectoryRunner.cpp
     src/simulation/AtmosphereExperiment.cpp
+    src/simulation/ElectronEnsemble.cpp
     src/simulation/EventLocator.cpp)
 target_include_directories(aurora_core PUBLIC include)
 target_compile_features(aurora_core PUBLIC cxx_std_20)
@@ -83,6 +84,10 @@ else()
 endif()
 
 if(BUILD_TESTING)
+    add_executable(aurora_ensemble_tests tests/ensemble_tests.cpp)
+    target_link_libraries(aurora_ensemble_tests PRIVATE aurora_core)
+    add_test(NAME ensemble COMMAND aurora_ensemble_tests)
+
     add_executable(aurora_loss_cone_boundary experiments/loss_cone_boundary.cpp)
     target_link_libraries(aurora_loss_cone_boundary PRIVATE aurora_io)
 
